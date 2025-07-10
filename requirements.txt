@@ -1,0 +1,7 @@
+fastmcp
+mcp
+mcp-server
+openai
+psycopg2
+pyodbc
+streamlit
