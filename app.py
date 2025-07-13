@@ -11,7 +11,7 @@ import streamlit.components.v1 as components
 import re
 
 # ========== PAGE CONFIG ==========
-st.set_page_config(page_title="MCP CRUD Chat", layout="wide")
+st.set_page_config(page_title="MCP-Driven Data Management Implementation", layout="wide")
 
 # ========== GLOBAL CSS ==========
 st.markdown("""
@@ -304,7 +304,8 @@ st.markdown(
             color: #555;
             margin-top: 0.35rem;
         ">
-            Agentic platform leverages MCP and LLMs to interpret user queries, execute secure CRUD operations, and deliver instant analytics on SQL Server and PostgreSQL.
+           Agentic Platform: Leveraging MCP and LLMs for Secure CRUD Operations and Instant Analytics on SQL Server and PostgreSQL
+
         </span>
     </div>
     """,
@@ -785,8 +786,7 @@ else:
         """
         <div style='margin-top:40px;font-size:1.20rem;text-align:center;color:#555;'>
             <br>
-            <b>Please select an application from the sidebar to begin chatting.</b><br><br>
-            Once you select <span style='color:#2568ef;'>MCP Application</span>, the chat interface will appear here.
+            <b></b><br><br>
         </div>
         """,
         unsafe_allow_html=True
