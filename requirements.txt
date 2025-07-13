@@ -2,6 +2,10 @@ fastmcp
 mcp
 mcp-server
 openai
-psycopg2
+psycopg2-binary
 pyodbc
 streamlit
+mysql-connector-python
+pandas
+Pillow
+python-dotenv
