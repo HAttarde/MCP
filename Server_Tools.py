@@ -4,46 +4,57 @@ import psycopg2
 from typing import Any
 
 # MCP server
-from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP 
+import mysql.connector
+from dotenv import load_dotenv
+load_dotenv() 
 
 # ————————————————
 # 1. SQL Server Configuration
 # ————————————————
-SQL_DRIVER   = os.getenv("SQL_DRIVER",   "ODBC Driver 17 for SQL Server")
-SQL_SERVER   = os.getenv("SQL_SERVER",   "HRUSHIKESH")
-SQL_USER     = os.getenv("SQL_USER",     "mcpuser")
-SQL_PASSWORD = os.getenv("SQL_PASSWORD", "mcppassword")
-SQL_DB       = os.getenv("DB_NAME",      "testdb")
+MYSQL_HOST = os.getenv("MYSQL_HOST")
+MYSQL_PORT = int(os.getenv("MYSQL_PORT"))
+MYSQL_USER = os.getenv("MYSQL_USER")
+MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD")
+MYSQL_DB = os.getenv("MYSQL_DB")
 
-def get_sql_conn(autocommit: bool = True):
-    conn_str = (
-        f"DRIVER={{{SQL_DRIVER}}};"
-        f"SERVER={SQL_SERVER};"
-        f"UID={SQL_USER};"
-        f"PWD={SQL_PASSWORD};"
-        f"DATABASE={SQL_DB};"
+def get_mysql_conn(db: str | None = MYSQL_DB):
+    """If db is None we connect to the server only (needed to CREATE DATABASE)."""
+    return mysql.connector.connect(
+        host=MYSQL_HOST,
+        port=MYSQL_PORT,
+        user=MYSQL_USER,
+        password=MYSQL_PASSWORD,
+        database=db,
+        ssl_disabled=False,          # Aiven requires TLS; keep this False
+        autocommit=True,
     )
-    return pyodbc.connect(conn_str, autocommit=autocommit)
+
 
 # ————————————————
 # 2. PostgreSQL Configuration
 # ————————————————
-PG_HOST     = os.getenv("PG_HOST",     "localhost")
-PG_PORT     = os.getenv("PG_PORT",     "5432")
-PG_USER     = os.getenv("PG_USER",     "postgres")
-PG_PASSWORD = os.getenv("PG_PASSWORD", "mysecretpassword")
-PG_DB       = os.getenv("PG_DB",       "postgres")
+def must_get(key: str) -> str:
+    val = os.getenv(key)
+    if not val:
+        raise RuntimeError(f"Missing required env var {key}")
+    return val
+
+PG_HOST = must_get("PG_HOST")
+PG_PORT = int(must_get("PG_PORT"))
+PG_DB   = os.getenv("PG_DB", "postgres")      # db name can default
+PG_USER = must_get("PG_USER")
+PG_PASS = must_get("PG_PASSWORD")
 
 def get_pg_conn():
-    conn = psycopg2.connect(
+    return psycopg2.connect(
         host=PG_HOST,
         port=PG_PORT,
-        user=PG_USER,
-        password=PG_PASSWORD,
         dbname=PG_DB,
+        user=PG_USER,
+        password=PG_PASS,
+        sslmode="require",                    # Supabase enforces TLS
     )
-    conn.autocommit = True
-    return conn
 
 # ————————————————
 # 3. Instantiate your MCP server
@@ -54,31 +65,38 @@ mcp = FastMCP("CRUDServer")
 # 4. Synchronous Setup: Create & seed tables
 # ————————————————
 def seed_databases():
-    # SQL Server
-    sql_cnxn = get_sql_conn()
-    sql_cur  = sql_cnxn.cursor()
-    # Create database if missing & use it
-    sql_cur.execute(f"IF DB_ID(N'{SQL_DB}') IS NULL CREATE DATABASE [{SQL_DB}];")
-    sql_cur.execute(f"USE [{SQL_DB}];")
-    # Drop + recreate table
-    sql_cur.execute("IF OBJECT_ID(N'dbo.Customers','U') IS NOT NULL DROP TABLE dbo.Customers;")
+    # ---------- MySQL ----------
+    # 1. connect without a default schema
+    root_cnx = get_mysql_conn(db=None)
+    root_cur = root_cnx.cursor()
+    root_cur.execute(f"CREATE DATABASE IF NOT EXISTS `{MYSQL_DB}`;")
+    root_cur.close()
+    root_cnx.close()
+
+    # 2. reconnect *inside* the target DB
+    sql_cnx = get_mysql_conn()
+    sql_cur = sql_cnx.cursor()
+
+    sql_cur.execute("DROP TABLE IF EXISTS Customers;")
     sql_cur.execute("""
-        CREATE TABLE dbo.Customers (
-            Id        INT IDENTITY(1,1) PRIMARY KEY,
-            Name      NVARCHAR(100) NOT NULL,
-            Email     NVARCHAR(100) NOT NULL,
-            CreatedAt DATETIME     DEFAULT GETDATE()
+        CREATE TABLE Customers (
+            Id        INT AUTO_INCREMENT PRIMARY KEY,
+            Name      VARCHAR(100) NOT NULL,
+            Email     VARCHAR(100) NOT NULL,
+            CreatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
     """)
-    # Seed data
+
     sql_cur.executemany(
-        "INSERT INTO dbo.Customers (Name, Email) VALUES (?, ?)",
-        [("Alice", "alice@example.com"), ("Bob", "bob@example.com")]
+        "INSERT INTO Customers (Name, Email) VALUES (%s, %s)",
+        [("Alice", "alice@example.com"),
+         ("Bob",   "bob@example.com")]
     )
-    sql_cnxn.close()
+    sql_cnx.close()
 
     # PostgreSQL
     pg_cnxn = get_pg_conn()
+    pg_cnxn.autocommit = True 
     pg_cur  = pg_cnxn.cursor()
     pg_cur.execute("DROP TABLE IF EXISTS products;")
     pg_cur.execute("""
@@ -107,82 +125,71 @@ async def sqlserver_crud(
     limit: int = 10,
     customer_id: int = None,
     new_email: str = None,
-    table_name: str = None,    # Added for DESCRIBE
+    table_name: str = None,
 ) -> Any:
-    cnxn = get_sql_conn()
+    cnxn = get_mysql_conn()        # already connected to MYSQL_DB
     cur  = cnxn.cursor()
-    cur.execute(f"USE [{SQL_DB}];")
 
     if operation == "create":
         if not name or not email:
-            cnxn.close()
             return {"sql": None, "result": "❌ 'name' and 'email' required for create."}
-        sql_query = "INSERT INTO dbo.Customers (Name, Email) VALUES (?, ?)"
+
+        sql_query = "INSERT INTO Customers (Name, Email) VALUES (%s, %s)"
         cur.execute(sql_query, (name, email))
-        result = f"✅ Customer '{name}' added."
-        cnxn.close()
-        return {"sql": sql_query, "result": result}
+        cnxn.commit()
+        return {"sql": sql_query, "result": f"✅ Customer '{name}' added."}
 
     elif operation == "read":
-        sql_query = (
-            "SELECT Id, Name, Email, CreatedAt "
-            "FROM dbo.Customers "
-            "ORDER BY Id ASC"
-        )
+        sql_query = """
+            SELECT Id, Name, Email, CreatedAt
+            FROM Customers
+            ORDER BY Id ASC
+        """
         cur.execute(sql_query)
         rows = cur.fetchall()
         result = [
-            {"Id": r.Id, "Name": r.Name, "Email": r.Email, "CreatedAt": r.CreatedAt.isoformat()}
+            {"Id": r[0], "Name": r[1], "Email": r[2], "CreatedAt": r[3].isoformat()}
             for r in rows
         ]
-        cnxn.close()
         return {"sql": sql_query, "result": result}
 
     elif operation == "update":
         if not customer_id or not new_email:
-            cnxn.close()
             return {"sql": None, "result": "❌ 'customer_id' and 'new_email' required for update."}
-        sql_query = "UPDATE dbo.Customers SET Email = ? WHERE Id = ?"
+
+        sql_query = "UPDATE Customers SET Email = %s WHERE Id = %s"
         cur.execute(sql_query, (new_email, customer_id))
-        result = f"✅ Customer id={customer_id} updated."
-        cnxn.close()
-        return {"sql": sql_query, "result": result}
+        cnxn.commit()
+        return {"sql": sql_query, "result": f"✅ Customer id={customer_id} updated."}
 
     elif operation == "delete":
         if not customer_id:
-            cnxn.close()
             return {"sql": None, "result": "❌ 'customer_id' required for delete."}
-        sql_query = "DELETE FROM dbo.Customers WHERE Id = ?"
+
+        sql_query = "DELETE FROM Customers WHERE Id = %s"
         cur.execute(sql_query, (customer_id,))
-        result = f"✅ Customer id={customer_id} deleted."
-        cnxn.close()
-        return {"sql": sql_query, "result": result}
+        cnxn.commit()
+        return {"sql": sql_query, "result": f"✅ Customer id={customer_id} deleted."}
 
     elif operation == "describe":
+        # Table schema query now includes TABLE_SCHEMA to avoid cross-DB clashes
         if not table_name:
-            cnxn.close()
             return {"sql": None, "result": "❌ 'table_name' required for describe."}
+
         sql_query = """
             SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, CHARACTER_MAXIMUM_LENGTH
             FROM INFORMATION_SCHEMA.COLUMNS
-            WHERE TABLE_NAME = ?
+            WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s
         """
-        cur.execute(sql_query, (table_name,))
+        cur.execute(sql_query, (MYSQL_DB, table_name))
         rows = cur.fetchall()
         result = [
-            {
-                "column": r.COLUMN_NAME,
-                "type": r.DATA_TYPE,
-                "nullable": r.IS_NULLABLE,
-                "max_length": r.CHARACTER_MAXIMUM_LENGTH,
-            }
+            {"column": r[0], "type": r[1], "nullable": r[2], "max_length": r[3]}
             for r in rows
         ]
-        cnxn.close()
         return {"sql": sql_query, "result": result}
 
     else:
-        cnxn.close()
         return {"sql": None, "result": f"❌ Unknown operation '{operation}'."}
 
 # ————————————————
@@ -208,6 +215,7 @@ async def postgresql_crud(
             return {"sql": None, "result": "❌ 'name' and 'price' required for create."}
         sql_query = "INSERT INTO products (name, price, description) VALUES (%s, %s, %s)"
         cur.execute(sql_query, (name, price, description))
+        cnxn.commit()
         result = f"✅ Product '{name}' added."
         cnxn.close()
         return {"sql": sql_query, "result": result}
@@ -233,19 +241,26 @@ async def postgresql_crud(
             return {"sql": None, "result": "❌ 'product_id' and 'new_price' required for update."}
         sql_query = "UPDATE products SET price = %s WHERE id = %s"
         cur.execute(sql_query, (new_price, product_id))
+        cnxn.commit()
         result = f"✅ Product id={product_id} updated."
         cnxn.close()
         return {"sql": sql_query, "result": result}
 
     elif operation == "delete":
-        if not product_id:
-            cnxn.close()
-            return {"sql": None, "result": "❌ 'product_id' required for delete."}
-        sql_query = "DELETE FROM products WHERE id = %s"
-        cur.execute(sql_query, (product_id,))
-        result = f"✅ Product id={product_id} deleted."
-        cnxn.close()
-        return {"sql": sql_query, "result": result}
+        if not product_id and not name:
+            return {"sql": None,
+                "result": "❌ Provide 'product_id' **or** 'name' for delete."}
+
+        if product_id:
+            sql_query = "DELETE FROM products WHERE id = %s"
+            params = (product_id,)
+        else:                      # delete by unique name
+            sql_query = "DELETE FROM products WHERE name = %s"
+            params = (name,)
+
+        cur.execute(sql_query, params)
+        cnxn.commit()
+        return {"sql": sql_query, "result": f"✅ Deleted product."}
 
     elif operation == "describe":
         if not table_name:
@@ -282,4 +297,4 @@ if __name__ == "__main__":
     seed_databases()
 
     # 2) Launch the MCP server with Streamable HTTP at /streamable-http
-    mcp.run(transport="streamable-http")
+    mcp.run(transport="streamable-http", host="0.0.0.0", port = 8000)
