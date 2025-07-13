@@ -8,6 +8,7 @@ from openai import OpenAI
 from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
 import streamlit.components.v1 as components
+import re
 
 # ========== PAGE CONFIG ==========
 st.set_page_config(page_title="MCP CRUD Chat", layout="wide")
@@ -361,6 +362,12 @@ if application == "MCP Application":
         "JSON: {\"tool\": \"postgresql_crud\", \"action\": \"read\", \"args\": {}}\n"
         "User query: \"display all products\"\n"
         "JSON: {\"tool\": \"postgresql_crud\", \"action\": \"read\", \"args\": {}}\n"
+        "User query: \"update price of gadget to 30\"\n"
+        "JSON: {\"tool\": \"postgresql_crud\", \"action\": \"update\", "
+        "\"args\": {\"name\": \"gadget\", \"new_price\": 30}}\n"
+        "User query: \"delete widget\"\n"
+        "JSON: {\"tool\": \"postgresql_crud\", \"action\": \"delete\", "
+        "\"args\": {\"name\": \"widget\"}}\n"
     )
         prompt = f"{TOOL_DESCRIPTIONS}\nUser query: \"{query}\"\nRespond with JSON only."
         resp = openai_client.chat.completions.create(
@@ -416,7 +423,8 @@ if application == "MCP Application":
     def normalize_args(args):
         mapping = {
             "product_name": "name",
-            "customer_name": "name"
+            "customer_name": "name",
+            "item": "name"
         }
         for old_key, new_key in mapping.items():
             if old_key in args:
@@ -693,6 +701,12 @@ if application == "MCP Application":
                         if matches:
                             args["product_id"] = matches[0]["id"]
                             p["args"] = args
+                if "name" not in args:
+        # generic “update price of <something> …”
+                    m = re.search(r'price of ([a-zA-Z0-9_ ]+?) (?:to|=)', user_query, re.I)
+                    if m:
+                        args["name"] = m.group(1).strip()
+                        p["args"] = args
                 if "new_price" not in args:
                     possible_price = extract_price(user_query)
                     if possible_price is not None:
