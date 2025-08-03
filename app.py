@@ -22,7 +22,7 @@ if not GROQ_API_KEY:
 
 groq_client = ChatGroq(
     groq_api_key=GROQ_API_KEY,
-    model_name=os.environ.get("GROQ_MODEL", "llama3-70b-8192")
+    model_name=os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
 )
 
 # ========== PAGE CONFIG ==========
@@ -639,6 +639,34 @@ def parse_user_query(query: str, available_tools: dict) -> dict:
         "   - 'create sale', 'add sale', 'new transaction'\n"
         "   - Any query asking for combined data from multiple tables\n"
         "\n"
+
+        "**ETL & DISPLAY FORMATTING RULES:**\n"
+    "For any data formatting requests (e.g., rounding decimals, changing date formats, handling nulls), "
+    "you MUST use the `display_format` parameter within the `sales_crud` tool.\n"
+
+    "1. **DECIMAL FORMATTING:**\n"
+    "   - If the user asks to 'round', 'format to N decimal places', or mentions 'decimals'.\n"
+    "   - Use: `{\"display_format\": \"Decimal Value Formatting\"}`\n"
+    "   - **Example Query:** 'show sales with 2 decimal places'\n"
+    "   - **→ Correct Tool Call:** `{\"tool\": \"sales_crud\", \"action\": \"read\", \"args\": {\"display_format\": \"Decimal Value Formatting\"}}`\n"
+
+    "2. **DATE FORMATTING:**\n"
+    "   - If the user asks to 'format date', 'show date as YYYY-MM-DD', or similar.\n"
+    "   - Use: `{\"display_format\": \"Data Format Conversion\"}`\n"
+    "   - **Example Query:** 'show sales with formatted dates'\n"
+    "   - **→ Correct Tool Call:** `{\"tool\": \"sales_crud\", \"action\": \"read\", \"args\": {\"display_format\": \"Data Format Conversion\"}}`\n"
+
+    "3. **NULL VALUE HANDLING:**\n"
+    "   - If the user asks to 'remove nulls', 'replace empty values', or 'handle missing data'.\n"
+    "   - Use: `{\"display_format\": \"Null Value Removal/Handling\"}`\n"
+    "   - **Example Query:** 'show sales but remove records with missing info'\n"
+    "   - **→ Correct Tool Call:** `{\"tool\": \"sales_crud\", \"action\": \"read\", \"args\": {\"display_format\": \"Null Value Removal/Handling\"}}`\n"
+
+    "4. **STRING CONCATENATION:**\n"
+    "   - If the user asks to 'combine names', 'create a full description', or 'show full name'.\n"
+    "   - Use: `{\"display_format\": \"String Concatenation\"}`\n"
+    "   - **Example Query:** 'show sales with customer full names'\n"
+    "   - **→ Correct Tool Call:** `{\"tool\": \"sales_crud\", \"action\": \"read\", \"args\": {\"display_format\": \"String Concatenation\"}}`\n"
         "ENHANCED DELETE OPERATION EXTRACTION:\n"
         "\n"
         "For DELETE operations, extract the entity name from these patterns:\n"
