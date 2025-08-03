@@ -22,7 +22,7 @@ if not GROQ_API_KEY:
 
 groq_client = ChatGroq(
     groq_api_key=GROQ_API_KEY,
-    model_name=os.environ.get("GROQ_MODEL", "deepseek-r1-distill-llama-70b")
+    model_name=os.environ.get("GROQ_MODEL", "moonshotai/kimi-k2-instruct")
 )
 
 # ========== PAGE CONFIG ==========
@@ -1640,4 +1640,3 @@ with st.expander("🔧 ETL Functions & Examples"):
     - **"update price of Gadget to 25"** - Updates Gadget price to $25
     - **"change email of Bob to bob@new.com"** - Updates Bob's email
     """)
-
