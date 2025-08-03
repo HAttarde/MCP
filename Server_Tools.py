@@ -1,7 +1,7 @@
 import os
 import pyodbc
 import psycopg2
-from typing import Any, Optional
+from typing import Any
 
 # MCP server
 from fastmcp import FastMCP
@@ -234,22 +234,6 @@ def seed_databases():
 # ————————————————
 # 6. Helper Functions for Cross-Database Queries and Name Resolution
 # ————————————————
-def get_customer_id_by_name(name: str) -> Optional[int]:
-    conn = get_mysql_conn()
-    cursor = conn.cursor()
-    cursor.execute("SELECT Id FROM Customers WHERE Name = %s", (name,))
-    result = cursor.fetchone()
-    conn.close()
-    return result[0] if result else None
-
-def get_product_id_by_name(name: str) -> Optional[int]:
-    conn = get_pg_products_conn()
-    cursor = conn.cursor()
-    cursor.execute("SELECT id FROM Products WHERE name = %s", (name,))
-    result = cursor.fetchone()
-    conn.close()
-    return result[0] if result else None
-
 def get_customer_name(customer_id: int) -> str:
     """Fetch customer name from MySQL database"""
     try:
@@ -310,18 +294,18 @@ def find_customer_by_name_enhanced(name: str) -> dict:
     try:
         mysql_cnxn = get_mysql_conn()
         mysql_cur = mysql_cnxn.cursor()
-
+        
         # Search strategy with priorities:
         # 1. Exact full name match (case insensitive)
-        # 2. Exact first name or last name match
+        # 2. Exact first name or last name match  
         # 3. Partial name matches
-
+        
         all_matches = []
-
+        
         # 1. Try exact full name match (case insensitive)
         mysql_cur.execute("SELECT Id, Name, Email FROM Customers WHERE LOWER(Name) = LOWER(%s)", (name,))
         exact_matches = mysql_cur.fetchall()
-
+        
         if exact_matches:
             # If only one exact match, return it immediately
             if len(exact_matches) == 1:
@@ -338,38 +322,38 @@ def find_customer_by_name_enhanced(name: str) -> dict:
                 for match in exact_matches:
                     all_matches.append({
                         "id": match[0],
-                        "name": match[1],
+                        "name": match[1], 
                         "email": match[2],
                         "match_type": "exact_full_name"
                     })
-
+        
         # 2. Try exact first name or last name match if no exact full name match
         if not exact_matches:
             mysql_cur.execute("""
-                SELECT Id, Name, Email FROM Customers
-                WHERE LOWER(FirstName) = LOWER(%s)
+                SELECT Id, Name, Email FROM Customers 
+                WHERE LOWER(FirstName) = LOWER(%s) 
                    OR LOWER(LastName) = LOWER(%s)
             """, (name, name))
             name_matches = mysql_cur.fetchall()
-
+            
             for match in name_matches:
                 all_matches.append({
                     "id": match[0],
                     "name": match[1],
-                    "email": match[2],
+                    "email": match[2], 
                     "match_type": "exact_name_part"
                 })
-
+        
         # 3. Try partial matches only if no exact matches found
         if not all_matches:
             mysql_cur.execute("""
-                SELECT Id, Name, Email FROM Customers
+                SELECT Id, Name, Email FROM Customers 
                 WHERE LOWER(Name) LIKE LOWER(%s)
                    OR LOWER(FirstName) LIKE LOWER(%s)
                    OR LOWER(LastName) LIKE LOWER(%s)
             """, (f"%{name}%", f"%{name}%", f"%{name}%"))
             partial_matches = mysql_cur.fetchall()
-
+            
             for match in partial_matches:
                 all_matches.append({
                     "id": match[0],
@@ -377,13 +361,13 @@ def find_customer_by_name_enhanced(name: str) -> dict:
                     "email": match[2],
                     "match_type": "partial"
                 })
-
+        
         mysql_cnxn.close()
-
+        
         # Handle results
         if not all_matches:
             return {"found": False, "error": f"Customer '{name}' not found"}
-
+        
         if len(all_matches) == 1:
             match = all_matches[0]
             return {
@@ -393,7 +377,7 @@ def find_customer_by_name_enhanced(name: str) -> dict:
                 "customer_name": match["name"],
                 "customer_email": match["email"]
             }
-
+        
         # Multiple matches found
         return {
             "found": True,
@@ -401,7 +385,7 @@ def find_customer_by_name_enhanced(name: str) -> dict:
             "matches": all_matches,
             "error": f"Multiple customers found matching '{name}'"
         }
-
+        
     except Exception as e:
         return {"found": False, "error": f"Database error: {str(e)}"}
 
@@ -410,34 +394,34 @@ def find_product_by_name(name: str) -> dict:
     try:
         pg_cnxn = get_pg_conn()
         pg_cur = pg_cnxn.cursor()
-
+        
         # Try exact match first
         pg_cur.execute("SELECT id, name FROM products WHERE name = %s", (name,))
         result = pg_cur.fetchone()
-
+        
         if result:
             pg_cnxn.close()
             return {"id": result[0], "name": result[1], "found": True}
-
+        
         # Try case-insensitive exact match
         pg_cur.execute("SELECT id, name FROM products WHERE LOWER(name) = LOWER(%s)", (name,))
         result = pg_cur.fetchone()
-
+        
         if result:
             pg_cnxn.close()
             return {"id": result[0], "name": result[1], "found": True}
-
+        
         # Try partial match
         pg_cur.execute("SELECT id, name FROM products WHERE LOWER(name) LIKE LOWER(%s)", (f"%{name}%",))
         result = pg_cur.fetchone()
-
+        
         if result:
             pg_cnxn.close()
             return {"id": result[0], "name": result[1], "found": True}
-
+        
         pg_cnxn.close()
         return {"found": False, "error": f"Product '{name}' not found"}
-
+        
     except Exception as e:
         return {"found": False, "error": f"Database error: {str(e)}"}
 
@@ -467,22 +451,22 @@ async def sqlserver_crud(
         # NEW LOGIC: Check if customer with this name already exists
         # Search for existing customers with the same first name or full name
         search_name = name.strip()
-
+        
         # Check for exact name matches or first name matches
         cur.execute("""
-            SELECT Id, Name, Email FROM Customers
-            WHERE LOWER(Name) = LOWER(%s)
+            SELECT Id, Name, Email FROM Customers 
+            WHERE LOWER(Name) = LOWER(%s) 
                OR LOWER(FirstName) = LOWER(%s)
                OR LOWER(Name) LIKE LOWER(%s)
         """, (search_name, search_name, f"%{search_name}%"))
-
+        
         existing_customers = cur.fetchall()
-
+        
         if existing_customers:
             # Filter out customers who already have emails
             customers_without_email = [c for c in existing_customers if not c[2]]  # c[2] is Email
             customers_with_email = [c for c in existing_customers if c[2]]  # c[2] is Email
-
+            
             if len(existing_customers) == 1:
                 # Only one customer found
                 existing_customer = existing_customers[0]
@@ -496,14 +480,14 @@ async def sqlserver_crud(
                     cnxn.commit()
                     cnxn.close()
                     return {"sql": sql_query, "result": f"✅ Email '{email}' added to existing customer '{existing_customer[1]}'."}
-
+            
             elif len(existing_customers) > 1:
                 # Multiple customers found - ask for clarification
                 customer_list = []
                 for c in existing_customers:
                     email_status = f"(has email: {c[2]})" if c[2] else "(no email)"
                     customer_list.append(f"- {c[1]} {email_status}")
-
+                
                 customer_details = "\n".join(customer_list)
                 cnxn.close()
                 return {"sql": None, "result": f"❓ Multiple customers found with name '{search_name}':\n{customer_details}\n\nPlease specify the full name (first and last name) to identify which customer you want to add the email to, or use a different name if you want to create a new customer."}
@@ -525,7 +509,7 @@ async def sqlserver_crud(
             sql_query = """
                         SELECT Id, FirstName, LastName, Name, Email, CreatedAt
                         FROM Customers
-                        WHERE LOWER(Name) LIKE LOWER(%s)
+                        WHERE LOWER(Name) LIKE LOWER(%s) 
                            OR LOWER(FirstName) LIKE LOWER(%s)
                            OR LOWER(LastName) LIKE LOWER(%s)
                         ORDER BY Id ASC
@@ -540,7 +524,7 @@ async def sqlserver_crud(
                         LIMIT %s
                         """
             cur.execute(sql_query, (limit,))
-
+        
         rows = cur.fetchall()
         result = [
             {
@@ -559,7 +543,7 @@ async def sqlserver_crud(
     elif operation == "update":
         # Initialize customer_name variable
         customer_name = None
-
+        
         # Enhanced update: resolve customer_id from name if not provided
         if not customer_id and name:
             # Use the original find_customer_by_name function if enhanced version not available
@@ -573,21 +557,21 @@ async def sqlserver_crud(
             except Exception as search_error:
                 # Fallback to direct database search
                 cur.execute("""
-                    SELECT Id, Name FROM Customers
-                    WHERE LOWER(Name) = LOWER(%s)
+                    SELECT Id, Name FROM Customers 
+                    WHERE LOWER(Name) = LOWER(%s) 
                        OR LOWER(FirstName) = LOWER(%s)
                        OR LOWER(LastName) = LOWER(%s)
                     LIMIT 1
                 """, (name, name, name))
                 result = cur.fetchone()
-
+                
                 if result:
                     customer_id = result[0]
                     customer_name = result[1]
                 else:
                     cnxn.close()
                     return {"sql": None, "result": f"❌ Customer '{name}' not found"}
-
+        
         if not customer_id or not new_email:
             cnxn.close()
             return {"sql": None, "result": "❌ 'customer_id' (or 'name') and 'new_email' required for update."}
@@ -595,15 +579,15 @@ async def sqlserver_crud(
         # Check if customer already has this email
         cur.execute("SELECT Name, Email FROM Customers WHERE Id = %s", (customer_id,))
         existing_customer = cur.fetchone()
-
+        
         if not existing_customer:
             cnxn.close()
             return {"sql": None, "result": f"❌ Customer with ID {customer_id} not found."}
-
+        
         # Set customer_name if not already set
         if not customer_name:
             customer_name = existing_customer[0]
-
+        
         if existing_customer[1] == new_email:
             cnxn.close()
             return {"sql": None, "result": f"ℹ️ Customer '{customer_name}' already has email '{new_email}'."}
@@ -612,13 +596,13 @@ async def sqlserver_crud(
         cur.execute(sql_query, (new_email, customer_id))
         cnxn.commit()
         cnxn.close()
-
+        
         return {"sql": sql_query, "result": f"✅ Customer '{customer_name}' email updated to '{new_email}'."}
 
     elif operation == "delete":
         # Initialize customer_name variable
         customer_name = None
-
+        
         # Enhanced delete: resolve customer_id from name if not provided
         if not customer_id and name:
             try:
@@ -631,14 +615,14 @@ async def sqlserver_crud(
             except Exception as search_error:
                 # Fallback to direct database search
                 cur.execute("""
-                    SELECT Id, Name FROM Customers
-                    WHERE LOWER(Name) = LOWER(%s)
+                    SELECT Id, Name FROM Customers 
+                    WHERE LOWER(Name) = LOWER(%s) 
                        OR LOWER(FirstName) = LOWER(%s)
                        OR LOWER(LastName) = LOWER(%s)
                     LIMIT 1
                 """, (name, name, name))
                 result = cur.fetchone()
-
+                
                 if result:
                     customer_id = result[0]
                     customer_name = result[1]
@@ -731,7 +715,7 @@ async def postgresql_crud(
                         LIMIT %s
                         """
             cur.execute(sql_query, (limit,))
-
+        
         rows = cur.fetchall()
         result = [
             {"id": r[0], "name": r[1], "price": float(r[2]), "description": r[3] or ""}
@@ -748,20 +732,20 @@ async def postgresql_crud(
                 cnxn.close()
                 return {"sql": None, "result": f"❌ {product_info['error']}"}
             product_id = product_info["id"]
-
+        
         if not product_id or new_price is None:
             cnxn.close()
             return {"sql": None, "result": "❌ 'product_id' (or 'name') and 'new_price' required for update."}
-
+        
         sql_query = "UPDATE products SET price = %s WHERE id = %s"
         cur.execute(sql_query, (new_price, product_id))
         cnxn.commit()
-
+        
         # Get updated product name for response
         cur.execute("SELECT name FROM products WHERE id = %s", (product_id,))
         product_name = cur.fetchone()
         product_name = product_name[0] if product_name else f"Product {product_id}"
-
+        
         cnxn.close()
         return {"sql": sql_query, "result": f"✅ Product '{product_name}' price updated to ${new_price:.2f}."}
 
@@ -822,7 +806,6 @@ async def postgresql_crud(
 # Fixed sales_crud function with proper column selection
 # Fixed sales_crud function with proper WHERE clause and column selection
 # Fixed sales_crud function with proper WHERE clause and column selection
-
 @mcp.tool()
 async def sales_crud(
         operation: str,
@@ -834,92 +817,91 @@ async def sales_crud(
         sale_id: int = None,
         new_quantity: int = None,
         table_name: str = None,
-        display_format: str = None,
+        display_format: str = None,  # Display formatting parameter
         customer_name: str = None,
         product_name: str = None,
         email: str = None,
         total_price: float = None,
-        columns: str = None,
-        where_clause: str = None,
-        filter_conditions: dict = None,
-        limit: int = None
+        # Enhanced parameters for column selection and filtering
+        columns: str = None,  # Comma-separated list of columns to display
+        where_clause: str = None,  # WHERE conditions
+        filter_conditions: dict = None,  # Alternative: structured filters
+        limit: int = None  # Row limit
 ) -> Any:
-    # All operations (create, update, delete, read) now use MySQL
-    sales_cnxn = get_mysql_conn()
-    sales_cur = sales_cnxn.cursor()
+    # For PostgreSQL sales operations (create, update, delete)
+    if operation in ["create", "update", "delete"]:
+        sales_cnxn = get_pg_sales_conn()
+        sales_cur = sales_cnxn.cursor()
 
-    if operation == "create":
-        if not customer_id or not product_id:
-            return {"sql": None, "result": "❌ 'customer_id' and 'product_id' required for create."}
+        if operation == "create":
+            if not customer_id or not product_id:
+                sales_cnxn.close()
+                return {"sql": None, "result": "❌ 'customer_id' and 'product_id' required for create."}
 
-        if not validate_customer_exists(customer_id):
-            return {"sql": None, "result": f"❌ Customer ID {customer_id} not found."}
+            mysql_cnxn = get_mysql_conn()
+            mysql_cur = mysql_cnxn.cursor()
+            # Validate customer exists
+            if not validate_customer_exists(customer_id):
+                sales_cnxn.close()
+                return {"sql": None, "result": f"❌ Customer with ID {customer_id} not found."}
 
-        if not validate_product_exists(product_id):
-            return {"sql": None, "result": f"❌ Product ID {product_id} not found."}
+            # Validate product exists and get price
+            if not validate_product_exists(product_id):
+                sales_cnxn.close()
+                return {"sql": None, "result": f"❌ Product with ID {product_id} not found."}
 
-        if not unit_price:
+            # Get product price if not provided
+            if not unit_price:
+                product_details = get_product_details(product_id)
+                unit_price = product_details["price"]
+
+            if not total_amount:
+                total_amount = unit_price * quantity
+
+            sql_query = """
+                        INSERT INTO sales (customer_id, product_id, quantity, unit_price, total_amount)
+                        VALUES (%s, %s, %s, %s, %s)
+                        """
+            sales_cur.execute(sql_query, (customer_id, product_id, quantity, unit_price, total_amount))
+            sales_cnxn.commit()
+
+            # Get customer and product names for response
+            customer_name = get_customer_name(customer_id)
             product_details = get_product_details(product_id)
-            unit_price = product_details["price"]
 
-        if not total_amount:
-            total_amount = unit_price * quantity
-       # Resolve customer_id from customer_name if needed
-        if not customer_id and customer_name:
-            customer_id = get_customer_id_by_name(customer_name)
-            if not customer_id:
-                sales_cnxn.close()
-                return {"sql": None, "result": f"❌ Customer with name '{customer_name}' not found."}
-
-        # Resolve product_id from product_name if needed
-        if not product_id and product_name:
-            product_id = get_product_id_by_name(product_name)
-            if not product_id:
-                sales_cnxn.close()
-                return {"sql": None, "result": f"❌ Product with name '{product_name}' not found."}
-
-
-        sql_query = """
-            INSERT INTO Sales (customer_id, product_id, quantity, unit_price, total_price)
-            VALUES (%s, %s, %s, %s, %s)
-        """
-        sales_cur.execute(sql_query, (customer_id, product_id, quantity, unit_price, total_amount))
-        sales_cnxn.commit()
-
-        customer_name = get_customer_name(customer_id)
-        product_details = get_product_details(product_id)
-        result = f"✅ Sale created: {customer_name} bought {quantity} {product_details['name']}(s) for ${total_amount:.2f}"
-        sales_cnxn.close()
-        return {"sql": sql_query, "result": result}
-
-    elif operation == "update":
-        if not sale_id or new_quantity is None:
+            result = f"✅ Sale created: {customer_name} bought {quantity} {product_details['name']}(s) for ${total_amount:.2f}"
             sales_cnxn.close()
-            return {"sql": None, "result": "❌ 'sale_id' and 'new_quantity' required for update."}
+            return {"sql": sql_query, "result": result}
 
-        sql_query = """
-            UPDATE Sales
-            SET quantity = %s,
-                total_price = unit_price * %s
-            WHERE Id = %s
-        """
-        sales_cur.execute(sql_query, (new_quantity, new_quantity, sale_id))
-        sales_cnxn.commit()
-        result = f"✅ Sale id={sale_id} updated to quantity {new_quantity}."
-        sales_cnxn.close()
-        return {"sql": sql_query, "result": result}
+        elif operation == "update":
+            if not sale_id or new_quantity is None:
+                sales_cnxn.close()
+                return {"sql": None, "result": "❌ 'sale_id' and 'new_quantity' required for update."}
 
-    elif operation == "delete":
-        if not sale_id:
+            # Recalculate total amount
+            sql_query = """
+                        UPDATE sales
+                        SET quantity     = %s,
+                            total_amount = unit_price * %s
+                        WHERE id = %s
+                        """
+            sales_cur.execute(sql_query, (new_quantity, new_quantity, sale_id))
+            sales_cnxn.commit()
+            result = f"✅ Sale id={sale_id} updated to quantity {new_quantity}."
             sales_cnxn.close()
-            return {"sql": None, "result": "❌ 'sale_id' required for delete."}
+            return {"sql": sql_query, "result": result}
 
-        sql_query = "DELETE FROM Sales WHERE Id = %s"
-        sales_cur.execute(sql_query, (sale_id,))
-        sales_cnxn.commit()
-        result = f"✅ Sale id={sale_id} deleted."
-        sales_cnxn.close()
-        return {"sql": sql_query, "result": result}
+        elif operation == "delete":
+            if not sale_id:
+                sales_cnxn.close()
+                return {"sql": None, "result": "❌ 'sale_id' required for delete."}
+
+            sql_query = "DELETE FROM sales WHERE id = %s"
+            sales_cur.execute(sql_query, (sale_id,))
+            sales_cnxn.commit()
+            result = f"✅ Sale id={sale_id} deleted."
+            sales_cnxn.close()
+            return {"sql": sql_query, "result": result}
 
     # Enhanced READ operation with FIXED column selection AND WHERE clause filtering
     elif operation == "read":
@@ -929,7 +911,7 @@ async def sales_crud(
         # Fixed column mappings - standardized naming
         available_columns = {
             "sale_id": "s.Id",
-            "first_name": "c.FirstName",
+            "first_name": "c.FirstName", 
             "last_name": "c.LastName",
             "customer_name": "c.Name",  # Use the Name field which has full name
             "product_name": "p.name",
@@ -947,13 +929,13 @@ async def sales_crud(
         # FIXED: Process column selection with better parsing
         selected_columns = []
         column_aliases = []
-
+        
         print(f"DEBUG: Raw columns parameter: '{columns}'")
-
+        
         if columns and columns.strip():
             # Clean and split the columns string
             columns_clean = columns.strip()
-
+            
             # Handle different input patterns
             if "," in columns_clean:
                 # Comma-separated list
@@ -961,9 +943,9 @@ async def sales_crud(
             else:
                 # Space-separated or single column
                 requested_cols = [col.strip().lower().replace(" ", "_") for col in columns_clean.split() if col.strip()]
-
+            
             print(f"DEBUG: Requested columns after parsing: {requested_cols}")
-
+            
             # Build SELECT clause based on requested columns
             for col in requested_cols:
                 matched = False
@@ -976,7 +958,7 @@ async def sales_crud(
                 else:
                     # Try fuzzy matching for common variations
                     for avail_col, db_col in available_columns.items():
-                        if (col in avail_col or avail_col in col or
+                        if (col in avail_col or avail_col in col or 
                             col.replace("_", "") in avail_col.replace("_", "") or
                             avail_col.replace("_", "") in col.replace("_", "")):
                             selected_columns.append(db_col)
@@ -984,7 +966,7 @@ async def sales_crud(
                             matched = True
                             print(f"DEBUG: Fuzzy match found for '{col}' -> '{avail_col}': {db_col}")
                             break
-
+                
                 if not matched:
                     print(f"DEBUG: No match found for column '{col}'. Skipping...")
 
@@ -1003,7 +985,7 @@ async def sales_crud(
 
         # Build dynamic SQL query
         select_clause = ", ".join([f"{col} AS {alias}" for col, alias in zip(selected_columns, column_aliases)])
-
+        
         # Base query
         base_sql = f"""
         SELECT  {select_clause}
@@ -1011,22 +993,22 @@ async def sales_crud(
         JOIN    Customers      c ON c.Id = s.customer_id
         JOIN    ProductsCache  p ON p.id = s.product_id
         """
-
+        
         # COMPLETELY REWRITTEN WHERE clause processing
         where_sql = ""
         query_params = []
-
+        
         if where_clause and where_clause.strip():
             print(f"DEBUG: Processing WHERE clause: '{where_clause}'")
-
+            
             import re
-
+            
             # Clean the input
             clause = where_clause.strip().lower()
-
+            
             # Enhanced pattern matching for various query formats
             where_conditions = []
-
+            
             # Pattern 1: "total_price > 50", "total price exceed 50", "total price exceeds $50"
             price_patterns = [
                 r'total[_\s]*price[_\s]*(>|>=|exceed[s]?|above|greater\s+than|more\s+than)\s*\$?(\d+(?:\.\d+)?)',
@@ -1034,7 +1016,7 @@ async def sales_crud(
                 r'total[_\s]*price[_\s]*(<|<=|below|less\s+than|under)\s*\$?(\d+(?:\.\d+)?)',
                 r'total[_\s]*price[_\s]*(=|equals?|is)\s*\$?(\d+(?:\.\d+)?)'
             ]
-
+            
             for pattern in price_patterns:
                 match = re.search(pattern, clause)
                 if match:
@@ -1049,19 +1031,19 @@ async def sales_crud(
                             operator = '='
                         else:
                             operator = '>'  # default
-
+                        
                         where_conditions.append(f"s.total_price {operator} %s")
                         query_params.append(float(value))
                         print(f"DEBUG: Found price condition: s.total_price {operator} {value}")
                         break
-
+            
             # Pattern 2: Quantity conditions
             quantity_patterns = [
                 r'quantity[_\s]*(>|>=|greater\s+than|more\s+than|above)\s*(\d+)',
                 r'quantity[_\s]*(<|<=|less\s+than|below|under)\s*(\d+)',
                 r'quantity[_\s]*(=|equals?|is)\s*(\d+)'
             ]
-
+            
             for pattern in quantity_patterns:
                 match = re.search(pattern, clause)
                 if match:
@@ -1072,12 +1054,12 @@ async def sales_crud(
                         operator = '<'
                     else:
                         operator = '='
-
+                    
                     where_conditions.append(f"s.quantity {operator} %s")
                     query_params.append(int(value))
                     print(f"DEBUG: Found quantity condition: s.quantity {operator} {value}")
                     break
-
+            
             # Pattern 3: Customer name conditions
             customer_patterns = [
                 r'customer[_\s]*name[_\s]*like[_\s]*["\']([^"\']+)["\']',
@@ -1085,7 +1067,7 @@ async def sales_crud(
                 r'customer[_\s]*=[_\s]*["\']([^"\']+)["\']',
                 r'customer[_\s]*name[_\s]*([a-zA-Z\s]+?)(?:\s|$)'
             ]
-
+            
             for pattern in customer_patterns:
                 match = re.search(pattern, clause)
                 if match:
@@ -1098,14 +1080,14 @@ async def sales_crud(
                         query_params.append(name_value)
                     print(f"DEBUG: Found customer condition: {name_value}")
                     break
-
+            
             # Pattern 4: Product name conditions
             product_patterns = [
                 r'product[_\s]*name[_\s]*like[_\s]*["\']([^"\']+)["\']',
                 r'product[_\s]*name[_\s]*=[_\s]*["\']([^"\']+)["\']',
                 r'product[_\s]*=[_\s]*["\']([^"\']+)["\']'
             ]
-
+            
             for pattern in product_patterns:
                 match = re.search(pattern, clause)
                 if match:
@@ -1118,7 +1100,7 @@ async def sales_crud(
                         query_params.append(product_value)
                     print(f"DEBUG: Found product condition: {product_value}")
                     break
-
+            
             # If no specific patterns matched, try a generic approach
             if not where_conditions:
                 # Look for any number that might be a price threshold
@@ -1132,16 +1114,16 @@ async def sales_crud(
                         where_conditions.append("s.total_price < %s")
                     else:
                         where_conditions.append("s.total_price > %s")  # Default assumption
-
+                    
                     query_params.append(value)
                     print(f"DEBUG: Generic number condition: {value}")
-
+            
             # Build the WHERE clause
             if where_conditions:
                 where_sql = " WHERE " + " AND ".join(where_conditions)
                 print(f"DEBUG: Final WHERE clause: {where_sql}")
                 print(f"DEBUG: Query parameters: {query_params}")
-
+        
         # Handle structured filter conditions (alternative to where_clause)
         elif filter_conditions:
             where_conditions = []
@@ -1154,19 +1136,19 @@ async def sales_crud(
                     else:
                         where_conditions.append(f"{db_field} = %s")
                         query_params.append(value)
-
+            
             if where_conditions:
                 where_sql = " WHERE " + " AND ".join(where_conditions)
-
+        
         # Add ORDER BY and LIMIT
         order_sql = " ORDER BY s.sale_date DESC"
         limit_sql = ""
         if limit:
             limit_sql = f" LIMIT {limit}"
-
+        
         # Complete SQL query
         sql = base_sql + where_sql + order_sql + limit_sql
-
+        
         print(f"DEBUG: Final SQL: {sql}")
         print(f"DEBUG: Final Parameters: {query_params}")
 
@@ -1176,13 +1158,13 @@ async def sales_crud(
                 mysql_cur.execute(sql, query_params)
             else:
                 mysql_cur.execute(sql)
-
+            
             rows = mysql_cur.fetchall()
             print(f"DEBUG: Query returned {len(rows)} rows")
         except Exception as e:
             mysql_cnxn.close()
             return {"sql": sql, "result": f"❌ SQL Error: {str(e)}"}
-
+        
         mysql_cnxn.close()
 
         # Build result with only requested columns
@@ -1192,7 +1174,7 @@ async def sales_crud(
             for i, alias in enumerate(column_aliases):
                 if i < len(r):  # Safety check
                     value = r[i]
-
+                    
                     # Apply formatting based on display_format
                     if display_format == "Data Format Conversion":
                         if "date" in alias or "timestamp" in alias:
@@ -1203,31 +1185,31 @@ async def sales_crud(
                     elif display_format == "Null Value Removal/Handling":
                         if value is None:
                             value = "N/A"
-
+                    
                     row_data[alias] = value
-
+            
             # Handle String Concatenation for specific display format
             if display_format == "String Concatenation":
                 if "customer_name" in row_data or ("first_name" in row_data and "last_name" in row_data):
                     if "first_name" in row_data and "last_name" in row_data:
                         row_data["customer_full_name"] = f"{row_data['first_name']} {row_data['last_name']}"
-
+                
                 if "product_name" in row_data and "product_description" in row_data:
                     desc = row_data['product_description'] or 'No description'
                     row_data["product_full_description"] = f"{row_data['product_name']} ({desc})"
-
+                
                 # Create sale summary if we have the needed fields
                 if all(field in row_data for field in ['customer_name', 'quantity', 'product_name', 'total_price']):
                     row_data["sale_summary"] = (
                         f"{row_data['customer_name']} bought {row_data['quantity']} "
                         f"of {row_data['product_name']} for ${float(row_data['total_price']):.2f}"
                     )
-
+            
             # Skip null records if specified
             if display_format == "Null Value Removal/Handling":
                 if any(v is None for v in row_data.values()):
                     continue
-
+                    
             processed_results.append(row_data)
 
         print(f"DEBUG: Processed results count: {len(processed_results)}")
