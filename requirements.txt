@@ -9,3 +9,5 @@ mysql-connector-python
 pandas
 Pillow
 python-dotenv
+langchain-community
+langchain-groq
