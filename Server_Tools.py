@@ -701,6 +701,7 @@ async def postgresql_crud(
 ) -> Any:
     """Manages product data in the PostgreSQL database. Use for creating, reading, updating, or deleting products."""
     cnxn = get_pg_conn()
+    cnxn = get_pg_conn()
     cur = cnxn.cursor()
 
     if operation == "create":
@@ -846,8 +847,8 @@ async def sales_crud(
         filter_conditions: dict = None,
         limit: int = None
 ) -> Any:
-    """Manages sales data in the MySQL database. Use for creating, reading, updating, or deleting sales."""
     # All operations (create, update, delete, read) now use MySQL
+    """Manages sales data in the MySQL database. Use for creating, reading, updating, or deleting sales."""
     sales_cnxn = get_mysql_conn()
     sales_cur = sales_cnxn.cursor()
 
