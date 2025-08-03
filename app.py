@@ -1565,3 +1565,50 @@ if application == "MCP Application":
         </script>
     """)
 
+# ========== ETL EXAMPLES HELP SECTION ==========
+with st.expander("🔧 ETL Functions & Examples"):
+    st.markdown("""
+    ### ETL Display Formatting Functions
+
+    Your MCP server supports 4 ETL (Extract, Transform, Load) functions for data formatting:
+
+    #### 1. Data Format Conversion
+    - **Query Examples:** 
+      - "show sales with data format conversion"
+      - "convert sales data format"
+      - "format sales data for export"
+    - **What it does:** Converts dates to string format, removes unnecessary fields
+
+    #### 2. Decimal Value Formatting  
+    - **Query Examples:**
+      - "format sales prices with decimal formatting" 
+      - "show sales with 2 decimal places"
+      - "decimal value formatting for sales"
+    - **What it does:** Formats all prices to exactly 2 decimal places as strings
+
+    #### 3. String Concatenation
+    - **Query Examples:**
+      - "combine sales fields for readability"
+      - "show sales with concatenated fields"
+    - **What it does:** Creates readable summary fields by combining related data
+
+    #### 4. Null Value Removal/Handling
+    - **Query Examples:**
+      - "clean sales data with null handling"
+      - "remove nulls from sales data"
+      - "handle null values in sales"
+    - **What it does:** Filters out incomplete records and handles null values
+
+    ### Regular Operations
+    - **"list all sales"** - Shows regular unformatted sales data
+    - **"show customers"** - Shows customer data
+    - **"list products"** - Shows product inventory
+    
+    ### Smart Name-Based Operations (NEW!)
+    - **"delete customer Alice"** - Finds and deletes Alice by name
+    - **"delete Alice Johnson"** - Finds customer by full name
+    - **"remove Johnson"** - Finds customer by last name
+    - **"delete product Widget"** - Finds and deletes Widget by name
+    - **"update price of Gadget to 25"** - Updates Gadget price to $25
+    - **"change email of Bob to bob@new.com"** - Updates Bob's email
+    """)
