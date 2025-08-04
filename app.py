@@ -22,7 +22,7 @@ if not GROQ_API_KEY:
 
 groq_client = ChatGroq(
     groq_api_key=GROQ_API_KEY,
-    model_name=os.environ.get("GROQ_MODEL", "moonshotai/kimi-k2-instruct")
+    model_name=os.environ.get("GROQ_MODEL", "deepseek-r1-distill-llama-70b")
 )
 
 # ========== PAGE CONFIG ==========
@@ -676,11 +676,16 @@ def parse_user_query(query: str, available_tools: dict) -> dict:
 
     "5. **CARE PLAN COLUMN FILTERING:**\n"
     "   - If the user asks to 'show only name and notes', 'remove address', or 'exclude phone number'.\n"
-    "   - Use: `columns` field in args with positive or negative column names.\n"
+    "   - For EXCLUSION queries (exclude, remove, without, but not):\n"
+    "   - **Example Query:** 'show care plans without phone number and address'\n"
+    "   - **→ Correct Tool Call:** {\"tool\": \"careplan_crud\", \"action\": \"read\", \"args\": {\"columns\": \"exclude phone_number,address\"}}\n"
+    "   - **Example Query:** 'list care plans but exclude phone number and address'\n"
+    "   - **→ Correct Tool Call:** {\"tool\": \"careplan_crud\", \"action\": \"read\", \"args\": {\"columns\": \"exclude phone_number,address\"}}\n"
+    "   - **Example Query:** 'show care plans without address'\n"
+    "   - **→ Correct Tool Call:** {\"tool\": \"careplan_crud\", \"action\": \"read\", \"args\": {\"columns\": \"exclude address\"}}\n"
+    "   - For POSITIVE selection:\n"
     "   - **Example Query:** 'show only name and case notes from care plans'\n"
     "   - **→ Correct Tool Call:** {\"tool\": \"careplan_crud\", \"action\": \"read\", \"args\": {\"columns\": \"name,case_notes\"}}\n"
-    "   - **Example Query:** 'show care plans without phone number and address'\n"
-    "   - **→ Correct Tool Call:** {\"tool\": \"careplan_crud\", \"action\": \"read\", \"args\": {\"columns\": \"*,-phone_number,-address\"}}\n"
 
     "6. **CARE PLAN FILTERING BY TEXT OR VALUE:**\n"
 "   - For name-based searches, use the 'name' parameter directly\n"
