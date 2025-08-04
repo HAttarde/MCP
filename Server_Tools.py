@@ -101,6 +101,30 @@ def seed_databases():
     sql_cnx = get_mysql_conn()
     sql_cur = sql_cnx.cursor()
 
+    # FIXED: Check if ANY table already has data (not just CarePlan)
+    tables_to_check = ['Customers', 'ProductsCache', 'Sales', 'CarePlan']
+    tables_exist = True
+    
+    for table in tables_to_check:
+        try:
+            sql_cur.execute(f"SELECT COUNT(*) FROM {table}")
+            count = sql_cur.fetchone()[0]
+            print(f"DEBUG: Found {count} existing {table} records")
+            if count == 0:
+                tables_exist = False
+                break
+        except Exception as e:
+            print(f"DEBUG: Table {table} doesn't exist or error: {e}")
+            tables_exist = False
+            break
+    
+    if tables_exist:
+        print("DEBUG: All tables already have data, skipping seeding entirely")
+        sql_cnx.close()
+        return
+
+    print("DEBUG: Proceeding with database seeding...")
+
     # Disable foreign key checks temporarily
     sql_cur.execute("SET FOREIGN_KEY_CHECKS = 0;")
 
@@ -108,6 +132,7 @@ def seed_databases():
     sql_cur.execute("DROP TABLE IF EXISTS Sales;")
     sql_cur.execute("DROP TABLE IF EXISTS ProductsCache;")
     sql_cur.execute("DROP TABLE IF EXISTS Customers;")
+    sql_cur.execute("DROP TABLE IF EXISTS CarePlan;")
 
     # Re-enable foreign key checks
     sql_cur.execute("SET FOREIGN_KEY_CHECKS = 1;")
@@ -130,10 +155,10 @@ def seed_databases():
         "INSERT INTO Customers (FirstName, LastName, Name, Email) VALUES (%s, %s, %s, %s)",
         [("Alice", "Johnson", "Alice Johnson", "alice@example.com"),
          ("Bob", "Smith", "Bob Smith", "bob@example.com"),
-         ("Charlie", "Brown", "Charlie Brown", None)]  # Charlie has no email for null handling demo
+         ("Charlie", "Brown", "Charlie Brown", None)]
     )
 
-    # Create ProductsCache table (copy of PostgreSQL products for easier joins)
+    # Create ProductsCache table
     sql_cur.execute("""
                     CREATE TABLE ProductsCache
                     (
@@ -149,10 +174,10 @@ def seed_databases():
         "INSERT INTO ProductsCache (id, name, price, description) VALUES (%s, %s, %s, %s)",
         [(1, "Widget", 9.99, "A standard widget."),
          (2, "Gadget", 14.99, "A useful gadget."),
-         (3, "Tool", 24.99, None)]  # Tool has no description for null handling demo
+         (3, "Tool", 24.99, None)]
     )
 
-    # Create Sales table in MySQL with foreign key constraints
+    # Create Sales table
     sql_cur.execute("""
                     CREATE TABLE Sales
                     (
@@ -171,13 +196,12 @@ def seed_databases():
     # Insert sample sales data
     sql_cur.executemany(
         "INSERT INTO Sales (customer_id, product_id, quantity, unit_price, total_price) VALUES (%s, %s, %s, %s, %s)",
-        [(1, 1, 2, 9.99, 19.98),  # Alice bought 2 Widgets
-         (2, 2, 1, 14.99, 14.99),  # Bob bought 1 Gadget
-         (3, 3, 3, 24.99, 74.97)]  # Charlie bought 3 Tools
+        [(1, 1, 2, 9.99, 19.98),
+         (2, 2, 1, 14.99, 14.99),
+         (3, 3, 3, 24.99, 74.97)]
     )
 
-
-    # Create CarePlan table in MySQL
+    # Create CarePlan table
     sql_cur.execute("""
     CREATE TABLE IF NOT EXISTS CarePlan
         (
@@ -189,9 +213,9 @@ def seed_databases():
         );
         """)
 
-    sql_cur.executemany(
-    "INSERT INTO CarePlan (Name, Address, PhoneNumber, CaseNotes) VALUES (%s, %s, %s, %s)",
-        [('John Carter', '123 Maple St, Denver, CO', '720-555-1034', 'Patient shows signs of early-onset arthritis.'),
+    # Insert exactly 10 CarePlan records (no duplicates)
+    careplan_data = [
+        ('John Carter', '123 Maple St, Denver, CO', '720-555-1034', 'Patient shows signs of early-onset arthritis.'),
         ('Emily Wong', '452 Elm Ave, Austin, TX', '512-555-9472', 'Monitoring post-op recovery from appendectomy.'),
         ('Michael Thompson', '789 Pine Blvd, Seattle, WA', '206-555-7812', 'Referred to oncology for suspected lymphoma.'),
         ('Sarah Patel', '901 Sunset Dr, Phoenix, AZ', '602-555-2298', 'Chronic asthma, advised to avoid dust exposure.'),
@@ -200,8 +224,23 @@ def seed_databases():
         ('Brian Lee', '778 Birch Rd, Boston, MA', '617-555-6711', 'Follow-up pending for insulin regulation.'),
         ('Rachel Kim', '333 Main St, San Francisco, CA', '415-555-8884', 'Recovering from minor stroke, speech therapy advised.'),
         ('Thomas Green', '2290 Riverwalk Dr, Nashville, TN', '615-555-1200', 'Persistent migraines; neurologist appointment scheduled.'),
-        ('Olivia Martinez', '101 Westview Blvd, Orlando, FL', '407-555-6559', 'Patient enrolled in smoking cessation program.')]
+        ('Olivia Martinez', '101 Westview Blvd, Orlando, FL', '407-555-6559', 'Patient enrolled in smoking cessation program.')
+    ]
+    
+    # Insert exactly 10 records
+    sql_cur.executemany(
+        "INSERT INTO CarePlan (Name, Address, PhoneNumber, CaseNotes) VALUES (%s, %s, %s, %s)",
+        careplan_data
     )
+    
+    # Verify the insert
+    sql_cur.execute("SELECT COUNT(*) FROM CarePlan")
+    final_count = sql_cur.fetchone()[0]
+    print(f"DEBUG: Successfully inserted {final_count} CarePlan records")
+    
+    if final_count != 10:
+        print(f"WARNING: Expected 10 records but got {final_count}")
+    
     sql_cnx.close()
 
     # ---------- PostgreSQL (Products) ----------
@@ -209,53 +248,76 @@ def seed_databases():
     pg_cnxn.autocommit = True
     pg_cur = pg_cnxn.cursor()
 
-    pg_cur.execute("DROP TABLE IF EXISTS products CASCADE;")
-    pg_cur.execute("""
-                   CREATE TABLE products
-                   (
-                       id          SERIAL PRIMARY KEY,
-                       name        TEXT           NOT NULL,
-                       price       NUMERIC(10, 4) NOT NULL,
-                       description TEXT
-                   );
-                   """)
+    # Check if products table has data
+    try:
+        pg_cur.execute("SELECT COUNT(*) FROM products")
+        product_count = pg_cur.fetchone()[0]
+        if product_count > 0:
+            print(f"DEBUG: Products table already has {product_count} records, skipping PostgreSQL seeding")
+            pg_cnxn.close()
+        else:
+            raise Exception("No products found")
+    except Exception:
+        print("DEBUG: Seeding PostgreSQL products table")
+        pg_cur.execute("DROP TABLE IF EXISTS products CASCADE;")
+        pg_cur.execute("""
+                       CREATE TABLE products
+                       (
+                           id          SERIAL PRIMARY KEY,
+                           name        TEXT           NOT NULL,
+                           price       NUMERIC(10, 4) NOT NULL,
+                           description TEXT
+                       );
+                       """)
 
-    pg_cur.executemany(
-        "INSERT INTO products (name, price, description) VALUES (%s, %s, %s)",
-        [("Widget", 9.99, "A standard widget."),
-         ("Gadget", 14.99, "A useful gadget."),
-         ("Tool", 24.99, "A handy tool.")]
-    )
-    pg_cnxn.close()
+        pg_cur.executemany(
+            "INSERT INTO products (name, price, description) VALUES (%s, %s, %s)",
+            [("Widget", 9.99, "A standard widget."),
+             ("Gadget", 14.99, "A useful gadget."),
+             ("Tool", 24.99, "A handy tool.")]
+        )
+        pg_cnxn.close()
 
     # ---------- PostgreSQL Sales Database ----------
     sales_cnxn = get_pg_sales_conn()
     sales_cnxn.autocommit = True
     sales_cur = sales_cnxn.cursor()
 
-    sales_cur.execute("DROP TABLE IF EXISTS sales;")
-    sales_cur.execute("""
-                      CREATE TABLE sales
-                      (
-                          id           SERIAL PRIMARY KEY,
-                          customer_id  INT            NOT NULL,
-                          product_id   INT            NOT NULL,
-                          quantity     INT            NOT NULL DEFAULT 1,
-                          unit_price   NUMERIC(10, 4) NOT NULL,
-                          total_amount NUMERIC(10, 4) NOT NULL,
-                          sale_date    TIMESTAMP               DEFAULT CURRENT_TIMESTAMP
-                      );
-                      """)
+    # Check if sales table has data
+    try:
+        sales_cur.execute("SELECT COUNT(*) FROM sales")
+        sales_count = sales_cur.fetchone()[0]
+        if sales_count > 0:
+            print(f"DEBUG: Sales table already has {sales_count} records, skipping PostgreSQL sales seeding")
+            sales_cnxn.close()
+        else:
+            raise Exception("No sales found")
+    except Exception:
+        print("DEBUG: Seeding PostgreSQL sales table")
+        sales_cur.execute("DROP TABLE IF EXISTS sales;")
+        sales_cur.execute("""
+                          CREATE TABLE sales
+                          (
+                              id           SERIAL PRIMARY KEY,
+                              customer_id  INT            NOT NULL,
+                              product_id   INT            NOT NULL,
+                              quantity     INT            NOT NULL DEFAULT 1,
+                              unit_price   NUMERIC(10, 4) NOT NULL,
+                              total_amount NUMERIC(10, 4) NOT NULL,
+                              sale_date    TIMESTAMP               DEFAULT CURRENT_TIMESTAMP
+                          );
+                          """)
 
-    # Sample sales data
-    sales_cur.executemany(
-        "INSERT INTO sales (customer_id, product_id, quantity, unit_price, total_amount) VALUES (%s, %s, %s, %s, %s)",
-        [(1, 1, 2, 9.99, 19.98),  # Alice bought 2 Widgets
-         (2, 2, 1, 14.99, 14.99),  # Bob bought 1 Gadget
-         (3, 3, 3, 24.99, 74.97)]  # Charlie bought 3 Tools
-    )
-    sales_cnxn.close()
+        # Sample sales data
+        sales_cur.executemany(
+            "INSERT INTO sales (customer_id, product_id, quantity, unit_price, total_amount) VALUES (%s, %s, %s, %s, %s)",
+            [(1, 1, 2, 9.99, 19.98),  # Alice bought 2 Widgets
+             (2, 2, 1, 14.99, 14.99),  # Bob bought 1 Gadget
+             (3, 3, 3, 24.99, 74.97)]  # Charlie bought 3 Tools
+        )
+        sales_cnxn.close()
 
+    print("DEBUG: Database seeding completed successfully")
 
 # ————————————————
 # 6. Helper Functions for Cross-Database Queries and Name Resolution
@@ -1287,13 +1349,21 @@ async def careplan_crud(
     conn = get_mysql_conn()
     cur = conn.cursor()
 
-    # Mapping for clean column naming
-    available_columns = {
+    # PRIMARY columns mapping (no duplicates)
+    primary_columns = {
         "id": "ID",
         "name": "Name", 
         "address": "Address",
         "phone_number": "PhoneNumber",
         "case_notes": "CaseNotes"
+    }
+    
+    # ALIAS mapping for fuzzy matching (maps aliases to primary keys)
+    column_aliases_map = {
+        "phone": "phone_number",
+        "notes": "case_notes",
+        "phonenumber": "phone_number",
+        "casenotes": "case_notes"
     }
 
     selected_columns = []
@@ -1301,34 +1371,126 @@ async def careplan_crud(
 
     if columns and columns.strip():
         raw_cols = columns.strip().lower()
-        if raw_cols.startswith("*"):
-            selected_columns = list(available_columns.values())
-            column_aliases = list(available_columns.keys())
+        print(f"DEBUG: Raw columns input: '{raw_cols}'")
+        
+        # ENHANCED: Handle both explicit "*,-column" format AND implicit exclusion patterns
+        if raw_cols.startswith("*") or "exclude" in raw_cols or any(col.startswith("-") for col in raw_cols.split(",")):
+            # Start with all PRIMARY columns
+            selected_columns = list(primary_columns.values())
+            column_aliases = list(primary_columns.keys())
+            print(f"DEBUG: Starting with all columns: {column_aliases}")
 
-            # Remove exclusions like *,-address,-phone
-            if "," in raw_cols:
+            # Find exclusions
+            exclusions = []
+            
+            if raw_cols.startswith("*"):
+                # Format: "*,-address,-phone_number"
                 exclusions = [col.strip().replace("-", "").replace(" ", "_")
                               for col in raw_cols.split(",")[1:] if col.strip().startswith("-")]
-                if exclusions:
-                    filtered_items = [
-                        (col_alias, col_db)
-                        for col_alias, col_db in available_columns.items()
-                        if col_alias not in exclusions
-                    ]
-                    column_aliases, selected_columns = zip(*filtered_items) if filtered_items else ([], [])
+            else:
+                # Format: "exclude phone_number,address" or "-phone_number,-address"
+                import re
+                
+                # Pattern 1: "exclude phone_number,address" or "exclude phone number,address"
+                exclude_match = re.search(r'exclude\s+(.+)', raw_cols)
+                if exclude_match:
+                    exclude_cols = exclude_match.group(1)
+                    exclusions = [col.strip().replace(" ", "_") for col in exclude_cols.split(",")]
+                else:
+                    # Pattern 2: Direct negative columns like "-phone_number,-address"
+                    exclusions = [col.strip().replace("-", "").replace(" ", "_")
+                                  for col in raw_cols.split(",") if col.strip().startswith("-")]
+            
+            print(f"DEBUG: Found exclusions: {exclusions}")
+            
+            # Apply exclusions with fuzzy matching
+            if exclusions:
+                filtered_items = []
+                for col_alias, col_db in primary_columns.items():
+                    should_exclude = False
+                    
+                    for exclusion in exclusions:
+                        # Normalize exclusion term (resolve aliases)
+                        normalized_exclusion = column_aliases_map.get(exclusion, exclusion)
+                        
+                        # Multiple matching strategies
+                        if (normalized_exclusion == col_alias or 
+                            exclusion == col_alias or
+                            exclusion in col_alias or 
+                            col_alias in exclusion or
+                            exclusion.replace("_", "") == col_alias.replace("_", "")):
+                            should_exclude = True
+                            print(f"DEBUG: Excluding '{col_alias}' due to exclusion '{exclusion}'")
+                            break
+                    
+                    if not should_exclude:
+                        filtered_items.append((col_alias, col_db))
+                
+                if filtered_items:
+                    column_aliases, selected_columns = zip(*filtered_items)
                     column_aliases, selected_columns = list(column_aliases), list(selected_columns)
+                else:
+                    # If all columns excluded, default to name and notes
+                    column_aliases = ["id", "name", "case_notes"]
+                    selected_columns = ["ID", "Name", "CaseNotes"]
         else:
+            # Positive selection: "name,case_notes" or "id,name"
             requested = [c.strip().lower().replace(" ", "_") for c in raw_cols.split(",")]
+            print(f"DEBUG: Requested columns: {requested}")
+            
             for col in requested:
-                if col in available_columns:
-                    selected_columns.append(available_columns[col])
+                matched = False
+                
+                # Step 1: Try exact match in primary columns
+                if col in primary_columns:
+                    selected_columns.append(primary_columns[col])
                     column_aliases.append(col)
+                    matched = True
+                    print(f"DEBUG: Exact match for '{col}'")
+                else:
+                    # Step 2: Try alias resolution
+                    if col in column_aliases_map:
+                        primary_col = column_aliases_map[col]
+                        if primary_col in primary_columns:
+                            selected_columns.append(primary_columns[primary_col])
+                            column_aliases.append(primary_col)  # Use primary key as alias
+                            matched = True
+                            print(f"DEBUG: Alias match: '{col}' -> '{primary_col}'")
+                    
+                    # Step 3: Try fuzzy matching
+                    if not matched:
+                        for primary_col, db_col in primary_columns.items():
+                            if (col in primary_col or primary_col in col or
+                                col.replace("_", "") in primary_col.replace("_", "")):
+                                selected_columns.append(db_col)
+                                column_aliases.append(primary_col)
+                                matched = True
+                                print(f"DEBUG: Fuzzy match: '{col}' -> '{primary_col}'")
+                                break
+                
+                if not matched:
+                    print(f"DEBUG: No match found for column '{col}'")
     else:
-        # Default to all columns
-        selected_columns = list(available_columns.values())
-        column_aliases = list(available_columns.keys())
+        # Default to all PRIMARY columns (no duplicates)
+        selected_columns = list(primary_columns.values())
+        column_aliases = list(primary_columns.keys())
 
-    select_clause = ", ".join([f"{db_col} AS {alias}" for db_col, alias in zip(selected_columns, column_aliases)])
+    print(f"DEBUG: Final selected columns: {list(zip(column_aliases, selected_columns))}")
+
+    # Remove any potential duplicates (safety check)
+    seen = set()
+    unique_columns = []
+    unique_aliases = []
+    
+    for alias, db_col in zip(column_aliases, selected_columns):
+        if db_col not in seen:
+            seen.add(db_col)
+            unique_columns.append(db_col)
+            unique_aliases.append(alias)
+    
+    print(f"DEBUG: After deduplication: {list(zip(unique_aliases, unique_columns))}")
+
+    select_clause = ", ".join([f"{db_col} AS {alias}" for alias, db_col in zip(unique_aliases, unique_columns)])
     sql = f"SELECT {select_clause} FROM CarePlan"
 
     query_params = []
@@ -1395,15 +1557,58 @@ async def careplan_crud(
         return {"sql": sql, "result": f"❌ SQL Error: {str(e)}"}
 
     conn.close()
-    results = [dict(zip(column_aliases, row)) for row in rows]
+    results = [dict(zip(unique_aliases, row)) for row in rows]
     return {"sql": sql, "result": results}
 
+
+def reset_all_databases():
+    """Complete reset of all databases - USE WITH CAUTION"""
+    print("DEBUG: RESETTING ALL DATABASES...")
+    
+    # Reset MySQL
+    conn = get_mysql_conn()
+    cur = conn.cursor()
+    
+    cur.execute("SET FOREIGN_KEY_CHECKS = 0;")
+    cur.execute("DROP TABLE IF EXISTS Sales;")
+    cur.execute("DROP TABLE IF EXISTS ProductsCache;") 
+    cur.execute("DROP TABLE IF EXISTS Customers;")
+    cur.execute("DROP TABLE IF EXISTS CarePlan;")
+    cur.execute("SET FOREIGN_KEY_CHECKS = 1;")
+    
+    conn.close()
+    print("DEBUG: MySQL tables dropped")
+    
+    # Reset PostgreSQL Products
+    try:
+        pg_conn = get_pg_conn()
+        pg_conn.autocommit = True
+        pg_cur = pg_conn.cursor()
+        pg_cur.execute("DROP TABLE IF EXISTS products CASCADE;")
+        pg_conn.close()
+        print("DEBUG: PostgreSQL products table dropped")
+    except Exception as e:
+        print(f"DEBUG: PostgreSQL products reset error: {e}")
+    
+    # Reset PostgreSQL Sales
+    try:
+        sales_conn = get_pg_sales_conn()
+        sales_conn.autocommit = True
+        sales_cur = sales_conn.cursor()
+        sales_cur.execute("DROP TABLE IF EXISTS sales;")
+        sales_conn.close()
+        print("DEBUG: PostgreSQL sales table dropped")
+    except Exception as e:
+        print(f"DEBUG: PostgreSQL sales reset error: {e}")
+    
+    print("DEBUG: All databases reset. Restart server to recreate with fresh data.")
 
 # ————————————————
 # 11. Main: seed + run server
 # ————————————————
 if __name__ == "__main__":
     # 1) Create + seed all databases (if needed)
+    reset_all_databases()
     seed_databases()
 
     # 2) Launch the MCP server for cloud deployment
