@@ -176,6 +176,32 @@ def seed_databases():
          (3, 3, 3, 24.99, 74.97)]  # Charlie bought 3 Tools
     )
 
+
+    # Create CarePlan table in MySQL
+    sql_cur.execute("""
+    CREATE TABLE IF NOT EXISTS CarePlan
+        (
+            ID INT AUTO_INCREMENT PRIMARY KEY,
+            Name VARCHAR(100),
+            Address VARCHAR(255),
+            PhoneNumber VARCHAR(20),
+            CaseNotes TEXT
+        );
+        """)
+
+    sql_cur.executemany(
+    "INSERT INTO CarePlan (Name, Address, PhoneNumber, CaseNotes) VALUES (%s, %s, %s, %s)",
+        [('John Carter', '123 Maple St, Denver, CO', '720-555-1034', 'Patient shows signs of early-onset arthritis.'),
+        ('Emily Wong', '452 Elm Ave, Austin, TX', '512-555-9472', 'Monitoring post-op recovery from appendectomy.'),
+        ('Michael Thompson', '789 Pine Blvd, Seattle, WA', '206-555-7812', 'Referred to oncology for suspected lymphoma.'),
+        ('Sarah Patel', '901 Sunset Dr, Phoenix, AZ', '602-555-2298', 'Chronic asthma, advised to avoid dust exposure.'),
+        ('David Nguyen', '134 Liberty Ln, Chicago, IL', '312-555-4431', 'Blood pressure stabilized, no meds required.'),
+        ('Angela Rodriguez', '555 Oak Cir, Miami, FL', '305-555-9902', 'Case closed after successful cataract surgery.'),
+        ('Brian Lee', '778 Birch Rd, Boston, MA', '617-555-6711', 'Follow-up pending for insulin regulation.'),
+        ('Rachel Kim', '333 Main St, San Francisco, CA', '415-555-8884', 'Recovering from minor stroke, speech therapy advised.'),
+        ('Thomas Green', '2290 Riverwalk Dr, Nashville, TN', '615-555-1200', 'Persistent migraines; neurologist appointment scheduled.'),
+        ('Olivia Martinez', '101 Westview Blvd, Orlando, FL', '407-555-6559', 'Patient enrolled in smoking cessation program.')]
+    )
     sql_cnx.close()
 
     # ---------- PostgreSQL (Products) ----------
@@ -1243,8 +1269,138 @@ async def sales_crud(
     else:
         return {"sql": None, "result": f"❌ Unknown operation '{operation}'."}
 
+# ----------------
+# 10. CarePlan Tool
+# ----------------
+@mcp.tool()
+async def careplan_crud(
+        operation: str,
+        columns: str = None,
+        where_clause: str = None,
+        limit: int = None,
+        name: str = None  # Add name parameter for direct name searches
+) -> Any:
+    """Manages care plan data in the MySQL database. Use for reading care plan records."""
+    if operation != "read":
+        return {"sql": None, "result": "❌ Only 'read' operation is supported for care plans."}
+
+    conn = get_mysql_conn()
+    cur = conn.cursor()
+
+    # Mapping for clean column naming
+    available_columns = {
+        "id": "ID",
+        "name": "Name", 
+        "address": "Address",
+        "phone_number": "PhoneNumber",
+        "case_notes": "CaseNotes"
+    }
+
+    selected_columns = []
+    column_aliases = []
+
+    if columns and columns.strip():
+        raw_cols = columns.strip().lower()
+        if raw_cols.startswith("*"):
+            selected_columns = list(available_columns.values())
+            column_aliases = list(available_columns.keys())
+
+            # Remove exclusions like *,-address,-phone
+            if "," in raw_cols:
+                exclusions = [col.strip().replace("-", "").replace(" ", "_")
+                              for col in raw_cols.split(",")[1:] if col.strip().startswith("-")]
+                if exclusions:
+                    filtered_items = [
+                        (col_alias, col_db)
+                        for col_alias, col_db in available_columns.items()
+                        if col_alias not in exclusions
+                    ]
+                    column_aliases, selected_columns = zip(*filtered_items) if filtered_items else ([], [])
+                    column_aliases, selected_columns = list(column_aliases), list(selected_columns)
+        else:
+            requested = [c.strip().lower().replace(" ", "_") for c in raw_cols.split(",")]
+            for col in requested:
+                if col in available_columns:
+                    selected_columns.append(available_columns[col])
+                    column_aliases.append(col)
+    else:
+        # Default to all columns
+        selected_columns = list(available_columns.values())
+        column_aliases = list(available_columns.keys())
+
+    select_clause = ", ".join([f"{db_col} AS {alias}" for db_col, alias in zip(selected_columns, column_aliases)])
+    sql = f"SELECT {select_clause} FROM CarePlan"
+
+    query_params = []
+    where_conditions = []
+
+    # Handle direct name parameter (for queries like "show records where name is John")
+    if name:
+        where_conditions.append("Name LIKE %s")
+        query_params.append(f"%{name}%")
+
+    # Handle custom where_clause
+    if where_clause and where_clause.strip():
+        import re
+        
+        # Parse the where_clause to handle different patterns
+        clause = where_clause.strip()
+        
+        # Pattern 1: name = 'John'
+        name_equals = re.search(r"name\s*=\s*['\"]([^'\"]+)['\"]", clause, re.IGNORECASE)
+        if name_equals:
+            where_conditions.append("Name LIKE %s")
+            query_params.append(f"%{name_equals.group(1)}%")
+        
+        # Pattern 2: case_notes LIKE '%cancer%'
+        elif "case_notes" in clause.lower() and "like" in clause.lower():
+            notes_like = re.search(r"case_notes\s+like\s+['\"]%([^%'\"]+)%['\"]", clause, re.IGNORECASE)
+            if notes_like:
+                where_conditions.append("CaseNotes LIKE %s")
+                query_params.append(f"%{notes_like.group(1)}%")
+        
+        # Pattern 3: address LIKE '%New York%'
+        elif "address" in clause.lower() and "like" in clause.lower():
+            address_like = re.search(r"address\s+like\s+['\"]%([^%'\"]+)%['\"]", clause, re.IGNORECASE)
+            if address_like:
+                where_conditions.append("Address LIKE %s")
+                query_params.append(f"%{address_like.group(1)}%")
+        
+        # If no pattern matched, try to add the clause directly but safely
+        else:
+            # For safety, only allow simple patterns
+            if not any(dangerous in clause.lower() for dangerous in ['drop', 'delete', 'update', 'insert', 'alter']):
+                where_conditions.append(clause)
+
+    # Build WHERE clause
+    if where_conditions:
+        sql += " WHERE " + " AND ".join(where_conditions)
+
+    # Add LIMIT if specified
+    if limit:
+        sql += f" LIMIT {limit}"
+
+    print(f"DEBUG: Care Plan SQL: {sql}")
+    print(f"DEBUG: Care Plan Parameters: {query_params}")
+
+    try:
+        if query_params:
+            cur.execute(sql, query_params)
+        else:
+            cur.execute(sql)
+        rows = cur.fetchall()
+        print(f"DEBUG: Care Plan Query returned {len(rows)} rows")
+    except Exception as e:
+        conn.close()
+        return {"sql": sql, "result": f"❌ SQL Error: {str(e)}"}
+
+    conn.close()
+    results = [dict(zip(column_aliases, row)) for row in rows]
+    return {"sql": sql, "result": results}
+
+
 # ————————————————
-# 10. Main: seed + run server
+# 11. Main: seed + run server
 # ————————————————
 if __name__ == "__main__":
     # 1) Create + seed all databases (if needed)
