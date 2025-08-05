@@ -403,7 +403,7 @@ st.markdown(
             letter-spacing: -2px;
             color: #222;
         ">
-            MCP-Driven Data Management With Natural Language
+            Data Exchange with Natural Language 
         </span>
         <span style="
             font-size: 1.15rem;
@@ -1550,3 +1550,4 @@ with st.expander("🔧 ETL Functions & Examples"):
     - **"update price of Gadget to 25"** - Updates Gadget price to $25
     - **"change email of Bob to bob@new.com"** - Updates Bob's email
     """)
+
