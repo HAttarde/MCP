@@ -455,56 +455,107 @@ def create_plotly_chart(chart_config):
     elif chart_type == "multi":
         # Handle multiple charts in subplots
         charts = chart_config.get("charts", [])
-        if len(charts) >= 2:
+        if len(charts) >= 1:  # At least one chart needed
+            
+            # Dynamically determine subplot specs based on chart types
+            specs = []
+            chart_titles = []
+            valid_charts = [chart for chart in charts[:4] if isinstance(chart, dict)]
+            
+            # Create 2x2 grid specs
+            for i in range(4):
+                if i < len(valid_charts):
+                    chart = valid_charts[i]
+                    chart_type_inner = chart.get("chart_type", "bar")
+                    chart_titles.append(chart.get("layout", {}).get("title", f"Chart {i+1}"))
+                    
+                    # Use "domain" type for pie charts, "xy" for others
+                    if chart_type_inner == "pie":
+                        spec = {"type": "domain"}
+                    else:
+                        spec = {"type": "xy"}
+                else:
+                    # Empty subplot
+                    spec = {"type": "xy"}
+                    chart_titles.append("")
+                
+                # Add to specs in 2x2 arrangement
+                if i == 0:
+                    specs.append([spec])
+                elif i == 1:
+                    specs[0].append(spec)
+                elif i == 2:
+                    specs.append([spec])
+                elif i == 3:
+                    specs[1].append(spec)
+            
+            # Ensure we have a complete 2x2 grid
+            while len(specs) < 2:
+                specs.append([{"type": "xy"}, {"type": "xy"}])
+            while len(specs[0]) < 2:
+                specs[0].append({"type": "xy"})
+            while len(specs[1]) < 2:
+                specs[1].append({"type": "xy"})
+            
             fig = make_subplots(
                 rows=2, cols=2,
-                subplot_titles=[
-                    chart.get("layout", {}).get("title", f"Chart {i+1}") 
-                    for i, chart in enumerate(charts[:4]) 
-                    if isinstance(chart, dict)  # Safety check
-                ],
-                specs=[[{"type": "xy"}, {"type": "xy"}], 
-                       [{"type": "domain"}, {"type": "xy"}]]
+                subplot_titles=chart_titles[:4],
+                specs=specs
             )
             
-            # Add first chart (bar) - with safety checks
-            if (len(charts) > 0 and isinstance(charts[0], dict) and 
-                charts.get("chart_type") == "bar"):  # Changed from "type"
-                data = charts.get("data", [])
-                if data:
-                    x_vals = [item.get("x", "") for item in data]
-                    y_vals = [item.get("y", 0) for item in data]
+            # Process each chart in the list
+            for i, chart in enumerate(valid_charts[:4]):  # Limit to 4 charts max
+                chart_type_inner = chart.get("chart_type")
+                chart_data = chart.get("data", [])
+                
+                # Determine subplot position
+                row = 1 if i < 2 else 2
+                col = (i % 2) + 1
+                
+                if chart_type_inner == "bar" and chart_data:
+                    x_vals = [item.get("x", "") for item in chart_data]
+                    y_vals = [item.get("y", 0) for item in chart_data]
+                    
                     fig.add_trace(
-                        go.Bar(x=x_vals, y=y_vals, name="Sales by Customer", 
+                        go.Bar(x=x_vals, y=y_vals, 
+                               name=f"Bar Chart {i+1}", 
                                marker_color='#4286f4'), 
-                        row=1, col=1
+                        row=row, col=col
                     )
-            
-            # Add second chart (line) - with safety checks
-            if (len(charts) > 1 and isinstance(charts[1], dict) and 
-                charts[1].get("chart_type") == "line"):  # Changed from "type"
-                data = charts[1].get("data", [])
-                if data:
-                    x_vals = [item.get("x", "") for item in data]
-                    y_vals = [item.get("y", 0) for item in data]
+                
+                elif chart_type_inner == "line" and chart_data:
+                    x_vals = [item.get("x", "") for item in chart_data]
+                    y_vals = [item.get("y", 0) for item in chart_data]
+                    
                     fig.add_trace(
                         go.Scatter(x=x_vals, y=y_vals, mode='lines+markers', 
-                                 name="Trend", line=dict(color='#39e639')), 
-                        row=1, col=2
+                                 name=f"Line Chart {i+1}", 
+                                 line=dict(color='#39e639')), 
+                        row=row, col=col
                     )
-            
-            # Add third chart (pie) - with safety checks
-            if (len(charts) > 2 and isinstance(charts[2], dict) and 
-                charts[2].get("chart_type") == "pie"):  # Changed from "type"
-                pie_data = charts[2].get("data", {})
-                labels = pie_data.get("labels", [])
-                values = pie_data.get("values", [])
-                if labels and values:
-                    fig.add_trace(
-                        go.Pie(labels=labels, values=values, name="Distribution", 
-                               marker=dict(colors=px.colors.qualitative.Pastel)), 
-                        row=2, col=1
-                    )
+                
+                elif chart_type_inner == "pie":
+                    # Handle both dict and list data formats for pie charts
+                    if isinstance(chart_data, dict):
+                        labels = chart_data.get("labels", [])
+                        values = chart_data.get("values", [])
+                    else:
+                        # If chart_data is a list, try to extract pie data from the chart
+                        pie_data = chart.get("data", {})
+                        if isinstance(pie_data, dict):
+                            labels = pie_data.get("labels", [])
+                            values = pie_data.get("values", [])
+                        else:
+                            labels = []
+                            values = []
+                    
+                    if labels and values:
+                        fig.add_trace(
+                            go.Pie(labels=labels, values=values, 
+                                   name=f"Pie Chart {i+1}",
+                                   marker=dict(colors=px.colors.qualitative.Pastel)), 
+                            row=row, col=col
+                        )
     
     if fig:
         # Apply layout
