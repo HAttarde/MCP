@@ -16,9 +16,9 @@ def must_get(key: str) -> str:
         raise RuntimeError(f"Missing required env var {key}")
     return val
 
-# ————————————————
+# ——————————————————————————————————————
 # 1. MySQL Configuration
-# ————————————————
+# ——————————————————————————————————————
 MYSQL_HOST = must_get("MYSQL_HOST")
 MYSQL_PORT = int(must_get("MYSQL_PORT"))
 MYSQL_USER = must_get("MYSQL_USER")
@@ -39,9 +39,9 @@ def get_mysql_conn(db: str | None = MYSQL_DB):
     )
 
 
-# ————————————————
+# ——————————————————————————————————————
 # 2. PostgreSQL Configuration (Products)
-# ————————————————
+# ——————————————————————————————————————
 PG_HOST = must_get("PG_HOST")
 PG_PORT = int(must_get("PG_PORT"))
 PG_DB = os.getenv("PG_DB", "postgres")  # db name can default
@@ -60,9 +60,9 @@ def get_pg_conn():
     )
 
 
-# ————————————————
+# ——————————————————————————————————————
 # 3. PostgreSQL Configuration (Sales)
-# ————————————————
+# ——————————————————————————————————————
 PG_SALES_HOST = must_get("PG_SALES_HOST")
 PG_SALES_PORT = int(must_get("PG_SALES_PORT"))
 PG_SALES_DB = os.getenv("PG_SALES_DB", "sales_db")
@@ -81,15 +81,15 @@ def get_pg_sales_conn():
     )
 
 
-# ————————————————
+# ——————————————————————————————————————
 # 4. Instantiate your MCP server
-# ————————————————
+# ——————————————————————————————————————
 mcp = FastMCP("CRUDServer")
 
 
-# ————————————————
+# ——————————————————————————————————————
 # 5. Synchronous Setup: Create & seed tables
-# ————————————————
+# ——————————————————————————————————————
 def seed_databases():
     # ---------- MySQL (Customers) ----------
     root_cnx = get_mysql_conn(db=None)
@@ -319,9 +319,9 @@ def seed_databases():
 
     print("DEBUG: Database seeding completed successfully")
 
-# ————————————————
+# ——————————————————————————————————————
 # 6. Helper Functions for Cross-Database Queries and Name Resolution
-# ————————————————
+# ——————————————————————————————————————
 def get_customer_id_by_name(name: str) -> Optional[int]:
     conn = get_mysql_conn()
     cursor = conn.cursor()
@@ -529,10 +529,290 @@ def find_product_by_name(name: str) -> dict:
     except Exception as e:
         return {"found": False, "error": f"Database error: {str(e)}"}
 
+# ——————————————————————————————————————
+# 7. NEW: Data Visualization Tool
+# ——————————————————————————————————————
+@mcp.tool()
+async def data_visualization(
+        chart_type: str,
+        data_source: str,
+        x_axis: str = None,
+        y_axis: str = None,
+        group_by: str = None,
+        aggregate_function: str = "sum",
+        title: str = None,
+        filters: dict = None,
+        limit: int = 100
+) -> Any:
+    """Creates data visualizations from database tables. Supports bar, line, pie, scatter, and multi-chart dashboards."""
+    
+    try:
+        # Determine which CRUD tool to use based on data_source
+        if data_source in ["sales", "sales_data", "transactions"]:
+            crud_result = await sales_crud("read", limit=limit)
+        elif data_source in ["customers", "customer", "client"]:
+            crud_result = await sqlserver_crud("read", limit=limit)
+        elif data_source in ["products", "product", "inventory"]:
+            crud_result = await postgresql_crud("read", limit=limit)
+        elif data_source in ["careplan", "care_plan", "healthcare"]:
+            crud_result = await careplan_crud("read", limit=limit)
+        else:
+            crud_result = await sales_crud("read", limit=limit)  # Default to sales
 
-# ————————————————
-# 7. Enhanced MySQL CRUD Tool (Customers) with Smart Name Resolution
-# ————————————————
+        if not crud_result or not crud_result.get("result"):
+            return {"error": "No data found", "chart_config": None}
+
+        data = crud_result["result"]
+        
+        # Process data based on chart type
+        if chart_type == "bar":
+            chart_config = create_bar_chart_config_server(data, x_axis, y_axis, group_by, aggregate_function, title)
+        elif chart_type == "line":
+            chart_config = create_line_chart_config_server(data, x_axis, y_axis, group_by, title)
+        elif chart_type == "pie":
+            chart_config = create_pie_chart_config_server(data, group_by, y_axis, aggregate_function, title)
+        elif chart_type == "scatter":
+            chart_config = create_scatter_chart_config_server(data, x_axis, y_axis, title)
+        elif chart_type == "multi":
+            chart_config = create_multi_dashboard_config_server(data, title)
+        else:
+            return {"error": f"Unsupported chart type: {chart_type}", "chart_config": None}
+
+        return {
+            "chart_type": chart_type,
+            "data_source": data_source,
+            "chart_config": chart_config,
+            "data_count": len(data),
+            "sql": crud_result.get("sql", ""),
+            "success": True
+        }
+
+    except Exception as e:
+        return {"error": f"Visualization error: {str(e)}", "chart_config": None}
+
+def create_bar_chart_config_server(data, x_axis, y_axis, group_by, aggregate_function, title):
+    """Create bar chart configuration"""
+    
+    # Auto-detect axes if not provided
+    if not x_axis:
+        if "customer_name" in data[0]:
+            x_axis = "customer_name"
+        elif "product_name" in data[0]:
+            x_axis = "product_name"
+        elif "name" in data[0]:
+            x_axis = "name"
+        else:
+            x_axis = list(data[0].keys())[0]
+    
+    if not y_axis:
+        if "total_price" in data[0]:
+            y_axis = "total_price"
+        elif "price" in data[0]:
+            y_axis = "price"
+        elif "quantity" in data[0]:
+            y_axis = "quantity"
+        else:
+            # Find first numeric field
+            for key, value in data[0].items():
+                if isinstance(value, (int, float)):
+                    y_axis = key
+                    break
+    
+    # Aggregate data
+    aggregated = {}
+    for row in data:
+        key = str(row.get(x_axis, "Unknown"))
+        value = float(row.get(y_axis, 0)) if row.get(y_axis) is not None else 0
+        
+        if key in aggregated:
+            if aggregate_function == "sum":
+                aggregated[key] += value
+            elif aggregate_function == "avg":
+                aggregated[key] = (aggregated[key] + value) / 2
+            elif aggregate_function == "count":
+                aggregated[key] += 1
+        else:
+            aggregated[key] = value if aggregate_function != "count" else 1
+    
+    chart_data = [{"x": k, "y": v} for k, v in aggregated.items()]
+    
+    return {
+        "chart_type": "bar",
+        "data": chart_data,
+        "layout": {
+            "title": title or f"{aggregate_function.title()} of {y_axis} by {x_axis}",
+            "xaxis": {"title": x_axis.replace("_", " ").title()},
+            "yaxis": {"title": f"{aggregate_function.title()} of {y_axis.replace('_', ' ').title()}"},
+            "showlegend": False
+        },
+        "config": {"displayModeBar": True, "responsive": True}
+    }
+
+def create_line_chart_config_server(data, x_axis, y_axis, group_by, title):
+    """Create line chart configuration"""
+    
+    # Auto-detect axes for time series
+    if not x_axis:
+        for key in data[0].keys():
+            if "date" in key.lower() or "time" in key.lower():
+                x_axis = key
+                break
+        if not x_axis:
+            x_axis = list(data[0].keys())[0]
+    
+    if not y_axis:
+        if "total_price" in data[0]:
+            y_axis = "total_price"
+        elif "quantity" in data[0]:
+            y_axis = "quantity"
+        else:
+            for key, value in data[0].items():
+                if isinstance(value, (int, float)):
+                    y_axis = key
+                    break
+    
+    # Sort data by x_axis for line chart
+    sorted_data = sorted(data, key=lambda x: x.get(x_axis, ""))
+    chart_data = [{"x": row.get(x_axis), "y": float(row.get(y_axis, 0))} for row in sorted_data]
+    
+    return {
+        "chart_type": "line",
+        "data": chart_data,
+        "layout": {
+            "title": title or f"{y_axis.replace('_', ' ').title()} Over {x_axis.replace('_', ' ').title()}",
+            "xaxis": {"title": x_axis.replace("_", " ").title()},
+            "yaxis": {"title": y_axis.replace("_", " ").title()},
+            "showlegend": False
+        },
+        "config": {"displayModeBar": True, "responsive": True}
+    }
+
+def create_pie_chart_config_server(data, group_by, value_field, aggregate_function, title):
+    """Create pie chart configuration"""
+    
+    if not group_by:
+        if "customer_name" in data[0]:
+            group_by = "customer_name"
+        elif "product_name" in data[0]:
+            group_by = "product_name"
+        else:
+            group_by = list(data[0].keys())[0]
+    
+    if not value_field:
+        if "total_price" in data[0]:
+            value_field = "total_price"
+        elif "quantity" in data[0]:
+            value_field = "quantity"
+        else:
+            for key, value in data[0].items():
+                if isinstance(value, (int, float)):
+                    value_field = key
+                    break
+    
+    # Aggregate data for pie chart
+    aggregated = {}
+    for row in data:
+        key = str(row.get(group_by, "Unknown"))
+        value = float(row.get(value_field, 0)) if row.get(value_field) is not None else 0
+        
+        if key in aggregated:
+            if aggregate_function == "sum":
+                aggregated[key] += value
+            elif aggregate_function == "count":
+                aggregated[key] += 1
+        else:
+            aggregated[key] = value if aggregate_function != "count" else 1
+    
+    labels = list(aggregated.keys())
+    values = list(aggregated.values())
+    
+    return {
+        "chart_type": "pie",
+        "data": {
+            "labels": labels,
+            "values": values
+        },
+        "layout": {
+            "title": title or f"Distribution of {value_field.replace('_', ' ').title()} by {group_by.replace('_', ' ').title()}",
+            "showlegend": True
+        },
+        "config": {"displayModeBar": True, "responsive": True}
+    }
+
+def create_scatter_chart_config_server(data, x_axis, y_axis, title):
+    """Create scatter plot configuration"""
+    
+    # Auto-detect numeric fields for scatter plot
+    numeric_fields = []
+    for key, value in data[0].items():
+        if isinstance(value, (int, float)):
+            numeric_fields.append(key)
+    
+    if not x_axis and len(numeric_fields) > 0:
+        x_axis = numeric_fields[0]
+    if not y_axis and len(numeric_fields) > 1:
+        y_axis = numeric_fields[1]
+    elif not y_axis:
+        y_axis = numeric_fields[0] if numeric_fields else list(data[0].keys())[1]
+    
+    chart_data = []
+    for row in data:
+        x_val = row.get(x_axis)
+        y_val = row.get(y_axis)
+        if x_val is not None and y_val is not None:
+            try:
+                chart_data.append({"x": float(x_val), "y": float(y_val)})
+            except (ValueError, TypeError):
+                continue
+    
+    return {
+        "chart_type": "scatter",
+        "data": chart_data,
+        "layout": {
+            "title": title or f"{y_axis.replace('_', ' ').title()} vs {x_axis.replace('_', ' ').title()}",
+            "xaxis": {"title": x_axis.replace("_", " ").title()},
+            "yaxis": {"title": y_axis.replace("_", " ").title()},
+            "showlegend": False
+        },
+        "config": {"displayModeBar": True, "responsive": True}
+    }
+
+def create_multi_dashboard_config_server(data, title):
+    """Create multiple charts for dashboard view"""
+    
+    charts = []
+    
+    # Chart 1: Bar chart of totals
+    if "total_price" in data[0] and "customer_name" in data[0]:
+        charts.append(create_bar_chart_config_server(data, "customer_name", "total_price", None, "sum", "Sales by Customer"))
+    
+    # Chart 2: Line chart over time if date field exists
+    date_field = None
+    for key in data[0].keys():
+        if "date" in key.lower() or "time" in key.lower():
+            date_field = key
+            break
+    
+    if date_field and "total_price" in data[0]:
+        charts.append(create_line_chart_config_server(data, date_field, "total_price", None, "Sales Trend Over Time"))
+    
+    # Chart 3: Pie chart of distribution
+    if "product_name" in data[0] and "quantity" in data[0]:
+        charts.append(create_pie_chart_config_server(data, "product_name", "quantity", "sum", "Product Sales Distribution"))
+    
+    return {
+        "chart_type": "multi",
+        "charts": charts,
+        "layout": {
+            "title": title or "Sales Analytics Dashboard",
+            "grid": {"rows": 2, "columns": 2}
+        },
+        "config": {"displayModeBar": True, "responsive": True}
+    }
+
+# ——————————————————————————————————————
+# 8. Enhanced MySQL CRUD Tool (Customers) with Smart Name Resolution
+# ——————————————————————————————————————
 # Fixed sqlserver_crud function with proper variable initialization
 @mcp.tool()
 async def sqlserver_crud(
@@ -773,9 +1053,9 @@ async def sqlserver_crud(
         return {"sql": None, "result": f"❌ Unknown operation '{operation}'."}
 
 
-# ————————————————
-# 8. Enhanced PostgreSQL CRUD Tool (Products) with Smart Name Resolution
-# ————————————————
+# ——————————————————————————————————————
+# 9. Enhanced PostgreSQL CRUD Tool (Products) with Smart Name Resolution
+# ——————————————————————————————————————
 @mcp.tool()
 async def postgresql_crud(
         operation: str,
@@ -907,9 +1187,9 @@ async def postgresql_crud(
         return {"sql": None, "result": f"❌ Unknown operation '{operation}'."}
 
 
-# ————————————————
-# 9. Sales CRUD Tool with Display Formatting Features (Unchanged)
-# ————————————————
+# ——————————————————————————————————————
+# 10. Sales CRUD Tool with Display Formatting Features (Unchanged)
+# ——————————————————————————————————————
 # Fixed sales_crud function with proper column selection
 # Fixed sales_crud function with proper WHERE clause and column selection
 # Fixed sales_crud function with proper WHERE clause and column selection
@@ -1332,7 +1612,7 @@ async def sales_crud(
         return {"sql": None, "result": f"❌ Unknown operation '{operation}'."}
 
 # ----------------
-# 10. CarePlan Tool
+# 11. CarePlan Tool
 # ----------------
 @mcp.tool()
 async def careplan_crud(
@@ -1603,9 +1883,9 @@ def reset_all_databases():
     
     print("DEBUG: All databases reset. Restart server to recreate with fresh data.")
 
-# ————————————————
-# 11. Main: seed + run server
-# ————————————————
+# ——————————————————————————————————————
+# 12. Main: seed + run server
+# ——————————————————————————————————————
 if __name__ == "__main__":
     # 1) Create + seed all databases (if needed)
     reset_all_databases()
