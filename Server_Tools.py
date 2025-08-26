@@ -16,9 +16,9 @@ def must_get(key: str) -> str:
         raise RuntimeError(f"Missing required env var {key}")
     return val
 
-# ——————————————————————————————————————
+# ————————————————
 # 1. MySQL Configuration
-# ——————————————————————————————————————
+# ————————————————
 MYSQL_HOST = must_get("MYSQL_HOST")
 MYSQL_PORT = int(must_get("MYSQL_PORT"))
 MYSQL_USER = must_get("MYSQL_USER")
@@ -39,9 +39,9 @@ def get_mysql_conn(db: str | None = MYSQL_DB):
     )
 
 
-# ——————————————————————————————————————
+# ————————————————
 # 2. PostgreSQL Configuration (Products)
-# ——————————————————————————————————————
+# ————————————————
 PG_HOST = must_get("PG_HOST")
 PG_PORT = int(must_get("PG_PORT"))
 PG_DB = os.getenv("PG_DB", "postgres")  # db name can default
@@ -60,9 +60,9 @@ def get_pg_conn():
     )
 
 
-# ——————————————————————————————————————
+# ————————————————
 # 3. PostgreSQL Configuration (Sales)
-# ——————————————————————————————————————
+# ————————————————
 PG_SALES_HOST = must_get("PG_SALES_HOST")
 PG_SALES_PORT = int(must_get("PG_SALES_PORT"))
 PG_SALES_DB = os.getenv("PG_SALES_DB", "sales_db")
@@ -81,15 +81,15 @@ def get_pg_sales_conn():
     )
 
 
-# ——————————————————————————————————————
+# ————————————————
 # 4. Instantiate your MCP server
-# ——————————————————————————————————————
+# ————————————————
 mcp = FastMCP("CRUDServer")
 
 
-# ——————————————————————————————————————
+# ————————————————
 # 5. Synchronous Setup: Create & seed tables
-# ——————————————————————————————————————
+# ————————————————
 def seed_databases():
     # ---------- MySQL (Customers) ----------
     root_cnx = get_mysql_conn(db=None)
@@ -101,30 +101,6 @@ def seed_databases():
     sql_cnx = get_mysql_conn()
     sql_cur = sql_cnx.cursor()
 
-    # FIXED: Check if ANY table already has data (not just CarePlan)
-    tables_to_check = ['Customers', 'ProductsCache', 'Sales', 'CarePlan']
-    tables_exist = True
-    
-    for table in tables_to_check:
-        try:
-            sql_cur.execute(f"SELECT COUNT(*) FROM {table}")
-            count = sql_cur.fetchone()[0]
-            print(f"DEBUG: Found {count} existing {table} records")
-            if count == 0:
-                tables_exist = False
-                break
-        except Exception as e:
-            print(f"DEBUG: Table {table} doesn't exist or error: {e}")
-            tables_exist = False
-            break
-    
-    if tables_exist:
-        print("DEBUG: All tables already have data, skipping seeding entirely")
-        sql_cnx.close()
-        return
-
-    print("DEBUG: Proceeding with database seeding...")
-
     # Disable foreign key checks temporarily
     sql_cur.execute("SET FOREIGN_KEY_CHECKS = 0;")
 
@@ -132,7 +108,6 @@ def seed_databases():
     sql_cur.execute("DROP TABLE IF EXISTS Sales;")
     sql_cur.execute("DROP TABLE IF EXISTS ProductsCache;")
     sql_cur.execute("DROP TABLE IF EXISTS Customers;")
-    sql_cur.execute("DROP TABLE IF EXISTS CarePlan;")
 
     # Re-enable foreign key checks
     sql_cur.execute("SET FOREIGN_KEY_CHECKS = 1;")
@@ -155,10 +130,10 @@ def seed_databases():
         "INSERT INTO Customers (FirstName, LastName, Name, Email) VALUES (%s, %s, %s, %s)",
         [("Alice", "Johnson", "Alice Johnson", "alice@example.com"),
          ("Bob", "Smith", "Bob Smith", "bob@example.com"),
-         ("Charlie", "Brown", "Charlie Brown", None)]
+         ("Charlie", "Brown", "Charlie Brown", None)]  # Charlie has no email for null handling demo
     )
 
-    # Create ProductsCache table
+    # Create ProductsCache table (copy of PostgreSQL products for easier joins)
     sql_cur.execute("""
                     CREATE TABLE ProductsCache
                     (
@@ -174,10 +149,10 @@ def seed_databases():
         "INSERT INTO ProductsCache (id, name, price, description) VALUES (%s, %s, %s, %s)",
         [(1, "Widget", 9.99, "A standard widget."),
          (2, "Gadget", 14.99, "A useful gadget."),
-         (3, "Tool", 24.99, None)]
+         (3, "Tool", 24.99, None)]  # Tool has no description for null handling demo
     )
 
-    # Create Sales table
+    # Create Sales table in MySQL with foreign key constraints
     sql_cur.execute("""
                     CREATE TABLE Sales
                     (
@@ -196,12 +171,13 @@ def seed_databases():
     # Insert sample sales data
     sql_cur.executemany(
         "INSERT INTO Sales (customer_id, product_id, quantity, unit_price, total_price) VALUES (%s, %s, %s, %s, %s)",
-        [(1, 1, 2, 9.99, 19.98),
-         (2, 2, 1, 14.99, 14.99),
-         (3, 3, 3, 24.99, 74.97)]
+        [(1, 1, 2, 9.99, 19.98),  # Alice bought 2 Widgets
+         (2, 2, 1, 14.99, 14.99),  # Bob bought 1 Gadget
+         (3, 3, 3, 24.99, 74.97)]  # Charlie bought 3 Tools
     )
 
-    # Create CarePlan table
+
+    # Create CarePlan table in MySQL
     sql_cur.execute("""
     CREATE TABLE IF NOT EXISTS CarePlan
         (
@@ -213,9 +189,9 @@ def seed_databases():
         );
         """)
 
-    # Insert exactly 10 CarePlan records (no duplicates)
-    careplan_data = [
-        ('John Carter', '123 Maple St, Denver, CO', '720-555-1034', 'Patient shows signs of early-onset arthritis.'),
+    sql_cur.executemany(
+    "INSERT INTO CarePlan (Name, Address, PhoneNumber, CaseNotes) VALUES (%s, %s, %s, %s)",
+        [('John Carter', '123 Maple St, Denver, CO', '720-555-1034', 'Patient shows signs of early-onset arthritis.'),
         ('Emily Wong', '452 Elm Ave, Austin, TX', '512-555-9472', 'Monitoring post-op recovery from appendectomy.'),
         ('Michael Thompson', '789 Pine Blvd, Seattle, WA', '206-555-7812', 'Referred to oncology for suspected lymphoma.'),
         ('Sarah Patel', '901 Sunset Dr, Phoenix, AZ', '602-555-2298', 'Chronic asthma, advised to avoid dust exposure.'),
@@ -224,23 +200,8 @@ def seed_databases():
         ('Brian Lee', '778 Birch Rd, Boston, MA', '617-555-6711', 'Follow-up pending for insulin regulation.'),
         ('Rachel Kim', '333 Main St, San Francisco, CA', '415-555-8884', 'Recovering from minor stroke, speech therapy advised.'),
         ('Thomas Green', '2290 Riverwalk Dr, Nashville, TN', '615-555-1200', 'Persistent migraines; neurologist appointment scheduled.'),
-        ('Olivia Martinez', '101 Westview Blvd, Orlando, FL', '407-555-6559', 'Patient enrolled in smoking cessation program.')
-    ]
-    
-    # Insert exactly 10 records
-    sql_cur.executemany(
-        "INSERT INTO CarePlan (Name, Address, PhoneNumber, CaseNotes) VALUES (%s, %s, %s, %s)",
-        careplan_data
+        ('Olivia Martinez', '101 Westview Blvd, Orlando, FL', '407-555-6559', 'Patient enrolled in smoking cessation program.')]
     )
-    
-    # Verify the insert
-    sql_cur.execute("SELECT COUNT(*) FROM CarePlan")
-    final_count = sql_cur.fetchone()[0]
-    print(f"DEBUG: Successfully inserted {final_count} CarePlan records")
-    
-    if final_count != 10:
-        print(f"WARNING: Expected 10 records but got {final_count}")
-    
     sql_cnx.close()
 
     # ---------- PostgreSQL (Products) ----------
@@ -248,80 +209,57 @@ def seed_databases():
     pg_cnxn.autocommit = True
     pg_cur = pg_cnxn.cursor()
 
-    # Check if products table has data
-    try:
-        pg_cur.execute("SELECT COUNT(*) FROM products")
-        product_count = pg_cur.fetchone()[0]
-        if product_count > 0:
-            print(f"DEBUG: Products table already has {product_count} records, skipping PostgreSQL seeding")
-            pg_cnxn.close()
-        else:
-            raise Exception("No products found")
-    except Exception:
-        print("DEBUG: Seeding PostgreSQL products table")
-        pg_cur.execute("DROP TABLE IF EXISTS products CASCADE;")
-        pg_cur.execute("""
-                       CREATE TABLE products
-                       (
-                           id          SERIAL PRIMARY KEY,
-                           name        TEXT           NOT NULL,
-                           price       NUMERIC(10, 4) NOT NULL,
-                           description TEXT
-                       );
-                       """)
+    pg_cur.execute("DROP TABLE IF EXISTS products CASCADE;")
+    pg_cur.execute("""
+                   CREATE TABLE products
+                   (
+                       id          SERIAL PRIMARY KEY,
+                       name        TEXT           NOT NULL,
+                       price       NUMERIC(10, 4) NOT NULL,
+                       description TEXT
+                   );
+                   """)
 
-        pg_cur.executemany(
-            "INSERT INTO products (name, price, description) VALUES (%s, %s, %s)",
-            [("Widget", 9.99, "A standard widget."),
-             ("Gadget", 14.99, "A useful gadget."),
-             ("Tool", 24.99, "A handy tool.")]
-        )
-        pg_cnxn.close()
+    pg_cur.executemany(
+        "INSERT INTO products (name, price, description) VALUES (%s, %s, %s)",
+        [("Widget", 9.99, "A standard widget."),
+         ("Gadget", 14.99, "A useful gadget."),
+         ("Tool", 24.99, "A handy tool.")]
+    )
+    pg_cnxn.close()
 
     # ---------- PostgreSQL Sales Database ----------
     sales_cnxn = get_pg_sales_conn()
     sales_cnxn.autocommit = True
     sales_cur = sales_cnxn.cursor()
 
-    # Check if sales table has data
-    try:
-        sales_cur.execute("SELECT COUNT(*) FROM sales")
-        sales_count = sales_cur.fetchone()[0]
-        if sales_count > 0:
-            print(f"DEBUG: Sales table already has {sales_count} records, skipping PostgreSQL sales seeding")
-            sales_cnxn.close()
-        else:
-            raise Exception("No sales found")
-    except Exception:
-        print("DEBUG: Seeding PostgreSQL sales table")
-        sales_cur.execute("DROP TABLE IF EXISTS sales;")
-        sales_cur.execute("""
-                          CREATE TABLE sales
-                          (
-                              id           SERIAL PRIMARY KEY,
-                              customer_id  INT            NOT NULL,
-                              product_id   INT            NOT NULL,
-                              quantity     INT            NOT NULL DEFAULT 1,
-                              unit_price   NUMERIC(10, 4) NOT NULL,
-                              total_amount NUMERIC(10, 4) NOT NULL,
-                              sale_date    TIMESTAMP               DEFAULT CURRENT_TIMESTAMP
-                          );
-                          """)
+    sales_cur.execute("DROP TABLE IF EXISTS sales;")
+    sales_cur.execute("""
+                      CREATE TABLE sales
+                      (
+                          id           SERIAL PRIMARY KEY,
+                          customer_id  INT            NOT NULL,
+                          product_id   INT            NOT NULL,
+                          quantity     INT            NOT NULL DEFAULT 1,
+                          unit_price   NUMERIC(10, 4) NOT NULL,
+                          total_amount NUMERIC(10, 4) NOT NULL,
+                          sale_date    TIMESTAMP               DEFAULT CURRENT_TIMESTAMP
+                      );
+                      """)
 
-        # Sample sales data
-        sales_cur.executemany(
-            "INSERT INTO sales (customer_id, product_id, quantity, unit_price, total_amount) VALUES (%s, %s, %s, %s, %s)",
-            [(1, 1, 2, 9.99, 19.98),  # Alice bought 2 Widgets
-             (2, 2, 1, 14.99, 14.99),  # Bob bought 1 Gadget
-             (3, 3, 3, 24.99, 74.97)]  # Charlie bought 3 Tools
-        )
-        sales_cnxn.close()
+    # Sample sales data
+    sales_cur.executemany(
+        "INSERT INTO sales (customer_id, product_id, quantity, unit_price, total_amount) VALUES (%s, %s, %s, %s, %s)",
+        [(1, 1, 2, 9.99, 19.98),  # Alice bought 2 Widgets
+         (2, 2, 1, 14.99, 14.99),  # Bob bought 1 Gadget
+         (3, 3, 3, 24.99, 74.97)]  # Charlie bought 3 Tools
+    )
+    sales_cnxn.close()
 
-    print("DEBUG: Database seeding completed successfully")
 
-# ——————————————————————————————————————
+# ————————————————
 # 6. Helper Functions for Cross-Database Queries and Name Resolution
-# ——————————————————————————————————————
+# ————————————————
 def get_customer_id_by_name(name: str) -> Optional[int]:
     conn = get_mysql_conn()
     cursor = conn.cursor()
@@ -529,290 +467,10 @@ def find_product_by_name(name: str) -> dict:
     except Exception as e:
         return {"found": False, "error": f"Database error: {str(e)}"}
 
-# ——————————————————————————————————————
-# 7. NEW: Data Visualization Tool
-# ——————————————————————————————————————
-@mcp.tool()
-async def data_visualization(
-        chart_type: str,
-        data_source: str,
-        x_axis: str = None,
-        y_axis: str = None,
-        group_by: str = None,
-        aggregate_function: str = "sum",
-        title: str = None,
-        filters: dict = None,
-        limit: int = 100
-) -> Any:
-    """Creates data visualizations from database tables. Supports bar, line, pie, scatter, and multi-chart dashboards."""
-    
-    try:
-        # Determine which CRUD tool to use based on data_source
-        if data_source in ["sales", "sales_data", "transactions"]:
-            crud_result = await sales_crud("read", limit=limit)
-        elif data_source in ["customers", "customer", "client"]:
-            crud_result = await sqlserver_crud("read", limit=limit)
-        elif data_source in ["products", "product", "inventory"]:
-            crud_result = await postgresql_crud("read", limit=limit)
-        elif data_source in ["careplan", "care_plan", "healthcare"]:
-            crud_result = await careplan_crud("read", limit=limit)
-        else:
-            crud_result = await sales_crud("read", limit=limit)  # Default to sales
 
-        if not crud_result or not crud_result.get("result"):
-            return {"error": "No data found", "chart_config": None}
-
-        data = crud_result["result"]
-        
-        # Process data based on chart type
-        if chart_type == "bar":
-            chart_config = create_bar_chart_config_server(data, x_axis, y_axis, group_by, aggregate_function, title)
-        elif chart_type == "line":
-            chart_config = create_line_chart_config_server(data, x_axis, y_axis, group_by, title)
-        elif chart_type == "pie":
-            chart_config = create_pie_chart_config_server(data, group_by, y_axis, aggregate_function, title)
-        elif chart_type == "scatter":
-            chart_config = create_scatter_chart_config_server(data, x_axis, y_axis, title)
-        elif chart_type == "multi":
-            chart_config = create_multi_dashboard_config_server(data, title)
-        else:
-            return {"error": f"Unsupported chart type: {chart_type}", "chart_config": None}
-
-        return {
-            "chart_type": chart_type,
-            "data_source": data_source,
-            "chart_config": chart_config,
-            "data_count": len(data),
-            "sql": crud_result.get("sql", ""),
-            "success": True
-        }
-
-    except Exception as e:
-        return {"error": f"Visualization error: {str(e)}", "chart_config": None}
-
-def create_bar_chart_config_server(data, x_axis, y_axis, group_by, aggregate_function, title):
-    """Create bar chart configuration"""
-    
-    # Auto-detect axes if not provided
-    if not x_axis:
-        if "customer_name" in data[0]:
-            x_axis = "customer_name"
-        elif "product_name" in data[0]:
-            x_axis = "product_name"
-        elif "name" in data[0]:
-            x_axis = "name"
-        else:
-            x_axis = list(data[0].keys())[0]
-    
-    if not y_axis:
-        if "total_price" in data[0]:
-            y_axis = "total_price"
-        elif "price" in data[0]:
-            y_axis = "price"
-        elif "quantity" in data[0]:
-            y_axis = "quantity"
-        else:
-            # Find first numeric field
-            for key, value in data[0].items():
-                if isinstance(value, (int, float)):
-                    y_axis = key
-                    break
-    
-    # Aggregate data
-    aggregated = {}
-    for row in data:
-        key = str(row.get(x_axis, "Unknown"))
-        value = float(row.get(y_axis, 0)) if row.get(y_axis) is not None else 0
-        
-        if key in aggregated:
-            if aggregate_function == "sum":
-                aggregated[key] += value
-            elif aggregate_function == "avg":
-                aggregated[key] = (aggregated[key] + value) / 2
-            elif aggregate_function == "count":
-                aggregated[key] += 1
-        else:
-            aggregated[key] = value if aggregate_function != "count" else 1
-    
-    chart_data = [{"x": k, "y": v} for k, v in aggregated.items()]
-    
-    return {
-        "chart_type": "bar",
-        "data": chart_data,
-        "layout": {
-            "title": title or f"{aggregate_function.title()} of {y_axis} by {x_axis}",
-            "xaxis": {"title": x_axis.replace("_", " ").title()},
-            "yaxis": {"title": f"{aggregate_function.title()} of {y_axis.replace('_', ' ').title()}"},
-            "showlegend": False
-        },
-        "config": {"displayModeBar": True, "responsive": True}
-    }
-
-def create_line_chart_config_server(data, x_axis, y_axis, group_by, title):
-    """Create line chart configuration"""
-    
-    # Auto-detect axes for time series
-    if not x_axis:
-        for key in data[0].keys():
-            if "date" in key.lower() or "time" in key.lower():
-                x_axis = key
-                break
-        if not x_axis:
-            x_axis = list(data[0].keys())[0]
-    
-    if not y_axis:
-        if "total_price" in data[0]:
-            y_axis = "total_price"
-        elif "quantity" in data[0]:
-            y_axis = "quantity"
-        else:
-            for key, value in data[0].items():
-                if isinstance(value, (int, float)):
-                    y_axis = key
-                    break
-    
-    # Sort data by x_axis for line chart
-    sorted_data = sorted(data, key=lambda x: x.get(x_axis, ""))
-    chart_data = [{"x": row.get(x_axis), "y": float(row.get(y_axis, 0))} for row in sorted_data]
-    
-    return {
-        "chart_type": "line",
-        "data": chart_data,
-        "layout": {
-            "title": title or f"{y_axis.replace('_', ' ').title()} Over {x_axis.replace('_', ' ').title()}",
-            "xaxis": {"title": x_axis.replace("_", " ").title()},
-            "yaxis": {"title": y_axis.replace("_", " ").title()},
-            "showlegend": False
-        },
-        "config": {"displayModeBar": True, "responsive": True}
-    }
-
-def create_pie_chart_config_server(data, group_by, value_field, aggregate_function, title):
-    """Create pie chart configuration"""
-    
-    if not group_by:
-        if "customer_name" in data[0]:
-            group_by = "customer_name"
-        elif "product_name" in data[0]:
-            group_by = "product_name"
-        else:
-            group_by = list(data[0].keys())[0]
-    
-    if not value_field:
-        if "total_price" in data[0]:
-            value_field = "total_price"
-        elif "quantity" in data[0]:
-            value_field = "quantity"
-        else:
-            for key, value in data[0].items():
-                if isinstance(value, (int, float)):
-                    value_field = key
-                    break
-    
-    # Aggregate data for pie chart
-    aggregated = {}
-    for row in data:
-        key = str(row.get(group_by, "Unknown"))
-        value = float(row.get(value_field, 0)) if row.get(value_field) is not None else 0
-        
-        if key in aggregated:
-            if aggregate_function == "sum":
-                aggregated[key] += value
-            elif aggregate_function == "count":
-                aggregated[key] += 1
-        else:
-            aggregated[key] = value if aggregate_function != "count" else 1
-    
-    labels = list(aggregated.keys())
-    values = list(aggregated.values())
-    
-    return {
-        "chart_type": "pie",
-        "data": {
-            "labels": labels,
-            "values": values
-        },
-        "layout": {
-            "title": title or f"Distribution of {value_field.replace('_', ' ').title()} by {group_by.replace('_', ' ').title()}",
-            "showlegend": True
-        },
-        "config": {"displayModeBar": True, "responsive": True}
-    }
-
-def create_scatter_chart_config_server(data, x_axis, y_axis, title):
-    """Create scatter plot configuration"""
-    
-    # Auto-detect numeric fields for scatter plot
-    numeric_fields = []
-    for key, value in data[0].items():
-        if isinstance(value, (int, float)):
-            numeric_fields.append(key)
-    
-    if not x_axis and len(numeric_fields) > 0:
-        x_axis = numeric_fields[0]
-    if not y_axis and len(numeric_fields) > 1:
-        y_axis = numeric_fields[1]
-    elif not y_axis:
-        y_axis = numeric_fields[0] if numeric_fields else list(data[0].keys())[1]
-    
-    chart_data = []
-    for row in data:
-        x_val = row.get(x_axis)
-        y_val = row.get(y_axis)
-        if x_val is not None and y_val is not None:
-            try:
-                chart_data.append({"x": float(x_val), "y": float(y_val)})
-            except (ValueError, TypeError):
-                continue
-    
-    return {
-        "chart_type": "scatter",
-        "data": chart_data,
-        "layout": {
-            "title": title or f"{y_axis.replace('_', ' ').title()} vs {x_axis.replace('_', ' ').title()}",
-            "xaxis": {"title": x_axis.replace("_", " ").title()},
-            "yaxis": {"title": y_axis.replace("_", " ").title()},
-            "showlegend": False
-        },
-        "config": {"displayModeBar": True, "responsive": True}
-    }
-
-def create_multi_dashboard_config_server(data, title):
-    """Create multiple charts for dashboard view"""
-    
-    charts = []
-    
-    # Chart 1: Bar chart of totals
-    if "total_price" in data[0] and "customer_name" in data[0]:
-        charts.append(create_bar_chart_config_server(data, "customer_name", "total_price", None, "sum", "Sales by Customer"))
-    
-    # Chart 2: Line chart over time if date field exists
-    date_field = None
-    for key in data[0].keys():
-        if "date" in key.lower() or "time" in key.lower():
-            date_field = key
-            break
-    
-    if date_field and "total_price" in data[0]:
-        charts.append(create_line_chart_config_server(data, date_field, "total_price", None, "Sales Trend Over Time"))
-    
-    # Chart 3: Pie chart of distribution
-    if "product_name" in data[0] and "quantity" in data[0]:
-        charts.append(create_pie_chart_config_server(data, "product_name", "quantity", "sum", "Product Sales Distribution"))
-    
-    return {
-        "chart_type": "multi",
-        "charts": charts,
-        "layout": {
-            "title": title or "Sales Analytics Dashboard",
-            "grid": {"rows": 2, "columns": 2}
-        },
-        "config": {"displayModeBar": True, "responsive": True}
-    }
-
-# ——————————————————————————————————————
-# 8. Enhanced MySQL CRUD Tool (Customers) with Smart Name Resolution
-# ——————————————————————————————————————
+# ————————————————
+# 7. Enhanced MySQL CRUD Tool (Customers) with Smart Name Resolution
+# ————————————————
 # Fixed sqlserver_crud function with proper variable initialization
 @mcp.tool()
 async def sqlserver_crud(
@@ -1053,9 +711,9 @@ async def sqlserver_crud(
         return {"sql": None, "result": f"❌ Unknown operation '{operation}'."}
 
 
-# ——————————————————————————————————————
-# 9. Enhanced PostgreSQL CRUD Tool (Products) with Smart Name Resolution
-# ——————————————————————————————————————
+# ————————————————
+# 8. Enhanced PostgreSQL CRUD Tool (Products) with Smart Name Resolution
+# ————————————————
 @mcp.tool()
 async def postgresql_crud(
         operation: str,
@@ -1187,9 +845,9 @@ async def postgresql_crud(
         return {"sql": None, "result": f"❌ Unknown operation '{operation}'."}
 
 
-# ——————————————————————————————————————
-# 10. Sales CRUD Tool with Display Formatting Features (Unchanged)
-# ——————————————————————————————————————
+# ————————————————
+# 9. Sales CRUD Tool with Display Formatting Features (Unchanged)
+# ————————————————
 # Fixed sales_crud function with proper column selection
 # Fixed sales_crud function with proper WHERE clause and column selection
 # Fixed sales_crud function with proper WHERE clause and column selection
@@ -1612,38 +1270,28 @@ async def sales_crud(
         return {"sql": None, "result": f"❌ Unknown operation '{operation}'."}
 
 # ----------------
-# 11. CarePlan Tool
+# 10. CarePlan Tool
 # ----------------
 @mcp.tool()
 async def careplan_crud(
         operation: str,
         columns: str = None,
         where_clause: str = None,
-        limit: int = None,
-        name: str = None  # Add name parameter for direct name searches
+        limit: int = None
 ) -> Any:
-    """Manages care plan data in the MySQL database. Use for reading care plan records."""
     if operation != "read":
         return {"sql": None, "result": "❌ Only 'read' operation is supported for care plans."}
 
     conn = get_mysql_conn()
     cur = conn.cursor()
 
-    # PRIMARY columns mapping (no duplicates)
-    primary_columns = {
-        "id": "ID",
-        "name": "Name", 
+    # Mapping for clean column naming
+    available_columns = {
+        "id": "Id",
+        "name": "Name",
         "address": "Address",
         "phone_number": "PhoneNumber",
         "case_notes": "CaseNotes"
-    }
-    
-    # ALIAS mapping for fuzzy matching (maps aliases to primary keys)
-    column_aliases_map = {
-        "phone": "phone_number",
-        "notes": "case_notes",
-        "phonenumber": "phone_number",
-        "casenotes": "case_notes"
     }
 
     selected_columns = []
@@ -1651,244 +1299,57 @@ async def careplan_crud(
 
     if columns and columns.strip():
         raw_cols = columns.strip().lower()
-        print(f"DEBUG: Raw columns input: '{raw_cols}'")
-        
-        # ENHANCED: Handle both explicit "*,-column" format AND implicit exclusion patterns
-        if raw_cols.startswith("*") or "exclude" in raw_cols or any(col.startswith("-") for col in raw_cols.split(",")):
-            # Start with all PRIMARY columns
-            selected_columns = list(primary_columns.values())
-            column_aliases = list(primary_columns.keys())
-            print(f"DEBUG: Starting with all columns: {column_aliases}")
+        if raw_cols.startswith("*"):
+            selected_columns = list(available_columns.values())
+            column_aliases = list(available_columns.keys())
 
-            # Find exclusions
-            exclusions = []
-            
-            if raw_cols.startswith("*"):
-                # Format: "*,-address,-phone_number"
-                exclusions = [col.strip().replace("-", "").replace(" ", "_")
-                              for col in raw_cols.split(",")[1:] if col.strip().startswith("-")]
-            else:
-                # Format: "exclude phone_number,address" or "-phone_number,-address"
-                import re
-                
-                # Pattern 1: "exclude phone_number,address" or "exclude phone number,address"
-                exclude_match = re.search(r'exclude\s+(.+)', raw_cols)
-                if exclude_match:
-                    exclude_cols = exclude_match.group(1)
-                    exclusions = [col.strip().replace(" ", "_") for col in exclude_cols.split(",")]
-                else:
-                    # Pattern 2: Direct negative columns like "-phone_number,-address"
-                    exclusions = [col.strip().replace("-", "").replace(" ", "_")
-                                  for col in raw_cols.split(",") if col.strip().startswith("-")]
-            
-            print(f"DEBUG: Found exclusions: {exclusions}")
-            
-            # Apply exclusions with fuzzy matching
-            if exclusions:
-                filtered_items = []
-                for col_alias, col_db in primary_columns.items():
-                    should_exclude = False
-                    
-                    for exclusion in exclusions:
-                        # Normalize exclusion term (resolve aliases)
-                        normalized_exclusion = column_aliases_map.get(exclusion, exclusion)
-                        
-                        # Multiple matching strategies
-                        if (normalized_exclusion == col_alias or 
-                            exclusion == col_alias or
-                            exclusion in col_alias or 
-                            col_alias in exclusion or
-                            exclusion.replace("_", "") == col_alias.replace("_", "")):
-                            should_exclude = True
-                            print(f"DEBUG: Excluding '{col_alias}' due to exclusion '{exclusion}'")
-                            break
-                    
-                    if not should_exclude:
-                        filtered_items.append((col_alias, col_db))
-                
-                if filtered_items:
-                    column_aliases, selected_columns = zip(*filtered_items)
-                    column_aliases, selected_columns = list(column_aliases), list(selected_columns)
-                else:
-                    # If all columns excluded, default to name and notes
-                    column_aliases = ["id", "name", "case_notes"]
-                    selected_columns = ["ID", "Name", "CaseNotes"]
+            # Remove exclusions like *,-address,-phone
+            exclusions = [col.strip().replace("-", "").replace(" ", "_")
+                          for col in raw_cols.split(",") if col.startswith("-")]
+            selected_columns, column_aliases = zip(*[
+                (col_db, col_alias)
+                for col_alias, col_db in available_columns.items()
+                if col_alias not in exclusions
+            ])
         else:
-            # Positive selection: "name,case_notes" or "id,name"
             requested = [c.strip().lower().replace(" ", "_") for c in raw_cols.split(",")]
-            print(f"DEBUG: Requested columns: {requested}")
-            
             for col in requested:
-                matched = False
-                
-                # Step 1: Try exact match in primary columns
-                if col in primary_columns:
-                    selected_columns.append(primary_columns[col])
+                if col in available_columns:
+                    selected_columns.append(available_columns[col])
                     column_aliases.append(col)
-                    matched = True
-                    print(f"DEBUG: Exact match for '{col}'")
-                else:
-                    # Step 2: Try alias resolution
-                    if col in column_aliases_map:
-                        primary_col = column_aliases_map[col]
-                        if primary_col in primary_columns:
-                            selected_columns.append(primary_columns[primary_col])
-                            column_aliases.append(primary_col)  # Use primary key as alias
-                            matched = True
-                            print(f"DEBUG: Alias match: '{col}' -> '{primary_col}'")
-                    
-                    # Step 3: Try fuzzy matching
-                    if not matched:
-                        for primary_col, db_col in primary_columns.items():
-                            if (col in primary_col or primary_col in col or
-                                col.replace("_", "") in primary_col.replace("_", "")):
-                                selected_columns.append(db_col)
-                                column_aliases.append(primary_col)
-                                matched = True
-                                print(f"DEBUG: Fuzzy match: '{col}' -> '{primary_col}'")
-                                break
-                
-                if not matched:
-                    print(f"DEBUG: No match found for column '{col}'")
     else:
-        # Default to all PRIMARY columns (no duplicates)
-        selected_columns = list(primary_columns.values())
-        column_aliases = list(primary_columns.keys())
+        # Default to all columns
+        selected_columns = list(available_columns.values())
+        column_aliases = list(available_columns.keys())
 
-    print(f"DEBUG: Final selected columns: {list(zip(column_aliases, selected_columns))}")
-
-    # Remove any potential duplicates (safety check)
-    seen = set()
-    unique_columns = []
-    unique_aliases = []
-    
-    for alias, db_col in zip(column_aliases, selected_columns):
-        if db_col not in seen:
-            seen.add(db_col)
-            unique_columns.append(db_col)
-            unique_aliases.append(alias)
-    
-    print(f"DEBUG: After deduplication: {list(zip(unique_aliases, unique_columns))}")
-
-    select_clause = ", ".join([f"{db_col} AS {alias}" for alias, db_col in zip(unique_aliases, unique_columns)])
+    select_clause = ", ".join([f"{db_col} AS {alias}" for db_col, alias in zip(selected_columns, column_aliases)])
     sql = f"SELECT {select_clause} FROM CarePlan"
 
     query_params = []
-    where_conditions = []
-
-    # Handle direct name parameter (for queries like "show records where name is John")
-    if name:
-        where_conditions.append("Name LIKE %s")
-        query_params.append(f"%{name}%")
-
-    # Handle custom where_clause
     if where_clause and where_clause.strip():
-        import re
-        
-        # Parse the where_clause to handle different patterns
-        clause = where_clause.strip()
-        
-        # Pattern 1: name = 'John'
-        name_equals = re.search(r"name\s*=\s*['\"]([^'\"]+)['\"]", clause, re.IGNORECASE)
-        if name_equals:
-            where_conditions.append("Name LIKE %s")
-            query_params.append(f"%{name_equals.group(1)}%")
-        
-        # Pattern 2: case_notes LIKE '%cancer%'
-        elif "case_notes" in clause.lower() and "like" in clause.lower():
-            notes_like = re.search(r"case_notes\s+like\s+['\"]%([^%'\"]+)%['\"]", clause, re.IGNORECASE)
-            if notes_like:
-                where_conditions.append("CaseNotes LIKE %s")
-                query_params.append(f"%{notes_like.group(1)}%")
-        
-        # Pattern 3: address LIKE '%New York%'
-        elif "address" in clause.lower() and "like" in clause.lower():
-            address_like = re.search(r"address\s+like\s+['\"]%([^%'\"]+)%['\"]", clause, re.IGNORECASE)
-            if address_like:
-                where_conditions.append("Address LIKE %s")
-                query_params.append(f"%{address_like.group(1)}%")
-        
-        # If no pattern matched, try to add the clause directly but safely
-        else:
-            # For safety, only allow simple patterns
-            if not any(dangerous in clause.lower() for dangerous in ['drop', 'delete', 'update', 'insert', 'alter']):
-                where_conditions.append(clause)
+        sql += f" WHERE {where_clause}"
 
-    # Build WHERE clause
-    if where_conditions:
-        sql += " WHERE " + " AND ".join(where_conditions)
-
-    # Add LIMIT if specified
     if limit:
         sql += f" LIMIT {limit}"
 
-    print(f"DEBUG: Care Plan SQL: {sql}")
-    print(f"DEBUG: Care Plan Parameters: {query_params}")
-
     try:
-        if query_params:
-            cur.execute(sql, query_params)
-        else:
-            cur.execute(sql)
+        cur.execute(sql, query_params)
         rows = cur.fetchall()
-        print(f"DEBUG: Care Plan Query returned {len(rows)} rows")
     except Exception as e:
         conn.close()
         return {"sql": sql, "result": f"❌ SQL Error: {str(e)}"}
 
     conn.close()
-    results = [dict(zip(unique_aliases, row)) for row in rows]
+    results = [dict(zip(column_aliases, row)) for row in rows]
     return {"sql": sql, "result": results}
 
 
-def reset_all_databases():
-    """Complete reset of all databases - USE WITH CAUTION"""
-    print("DEBUG: RESETTING ALL DATABASES...")
-    
-    # Reset MySQL
-    conn = get_mysql_conn()
-    cur = conn.cursor()
-    
-    cur.execute("SET FOREIGN_KEY_CHECKS = 0;")
-    cur.execute("DROP TABLE IF EXISTS Sales;")
-    cur.execute("DROP TABLE IF EXISTS ProductsCache;") 
-    cur.execute("DROP TABLE IF EXISTS Customers;")
-    cur.execute("DROP TABLE IF EXISTS CarePlan;")
-    cur.execute("SET FOREIGN_KEY_CHECKS = 1;")
-    
-    conn.close()
-    print("DEBUG: MySQL tables dropped")
-    
-    # Reset PostgreSQL Products
-    try:
-        pg_conn = get_pg_conn()
-        pg_conn.autocommit = True
-        pg_cur = pg_conn.cursor()
-        pg_cur.execute("DROP TABLE IF EXISTS products CASCADE;")
-        pg_conn.close()
-        print("DEBUG: PostgreSQL products table dropped")
-    except Exception as e:
-        print(f"DEBUG: PostgreSQL products reset error: {e}")
-    
-    # Reset PostgreSQL Sales
-    try:
-        sales_conn = get_pg_sales_conn()
-        sales_conn.autocommit = True
-        sales_cur = sales_conn.cursor()
-        sales_cur.execute("DROP TABLE IF EXISTS sales;")
-        sales_conn.close()
-        print("DEBUG: PostgreSQL sales table dropped")
-    except Exception as e:
-        print(f"DEBUG: PostgreSQL sales reset error: {e}")
-    
-    print("DEBUG: All databases reset. Restart server to recreate with fresh data.")
 
-# ——————————————————————————————————————
-# 12. Main: seed + run server
-# ——————————————————————————————————————
+# ————————————————
+# 11. Main: seed + run server
+# ————————————————
 if __name__ == "__main__":
     # 1) Create + seed all databases (if needed)
-    reset_all_databases()
     seed_databases()
 
     # 2) Launch the MCP server for cloud deployment
